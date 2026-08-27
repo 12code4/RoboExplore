@@ -113,6 +113,7 @@
       this.enemies.length = 0; this.projectiles.length = 0; this.pickups.length = 0; this.hazards.length = 0;
       this.boss = null;
       this.lastPulse = null;
+      this._empT = 9; this._empWas = false; this.echoDisabled = false;  // first EM surge ~6s after entry
       RE.Particles.clear();
 
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
@@ -166,11 +167,30 @@
       if (rng.next() < 0.65) { const pos = cell(gen.pickFeatureCell(6, 5)); this.pickups.push(RE.makePickup('hull', pos.x, pos.y, { value: 30 })); }
       // module cache
       if (isThreshold || rng.next() < 0.8) { const pos = cell(gen.pickFeatureCell(9, 6)); this.pickups.push(RE.makePickup('module', pos.x, pos.y)); }
+      // Reconstructor Station (guaranteed on threshold, ~35% otherwise).
+      if (isThreshold || rng.next() < 0.35) {
+        const pos = cell(gen.pickFeatureCell(8, 7));
+        const st = RE.makePickup('station', pos.x, pos.y);
+        st.stock = { modules: this._rollModules(3), repairUses: 0, refillUsed: false };
+        this.pickups.push(st);
+      }
       // core-shard (deeper = likelier; guaranteed on threshold)
       if (isThreshold || rng.next() < 0.22 + n * 0.02) { const pos = cell(gen.pickFeatureCell(10, 6)); this.pickups.push(RE.makePickup('shard', pos.x, pos.y, { value: 1 })); }
       // log fragment
       const logs = RE.logsForBiome(biome.id).filter(l => !RE.Save.data.logsFound[l.id]);
       if (logs.length && rng.next() < 0.6) { const pos = cell(gen.pickFeatureCell(7, 5)); const log = rng.pick(logs); this.pickups.push(RE.makePickup('log', pos.x, pos.y, { data: log })); }
+
+      // ---- Environmental hazards per biome ----
+      if (biome.id === 'marrow') {          // lava rifts (permanent)
+        const rifts = 5 + Math.floor(n * 0.2);
+        for (let i = 0; i < rifts; i++) { const pos = cell(gen.pickFeatureCell(7, 3)); this.spawnHazard(pos.x, pos.y, rng.int(34, 54), 22, 0, '#ff4a1c', { permanent: true }); }
+      } else if (biome.id === 'vaults') {   // arc floors (periodic)
+        const arcs = 5 + Math.floor(n * 0.2);
+        for (let i = 0; i < arcs; i++) { const pos = cell(gen.pickFeatureCell(6, 3)); this.spawnHazard(pos.x, pos.y, 36, 14, 0, '#6cc0ff', { permanent: true, periodic: { on: 2.0, off: 1.6 }, phase: rng.float(0, 3.6) }); }
+      } else if (biome.id === 'hollows') {  // spore clouds (permanent, mild)
+        const pods = 3 + Math.floor(n * 0.2);
+        for (let i = 0; i < pods; i++) { const pos = cell(gen.pickFeatureCell(7, 5)); this.spawnHazard(pos.x, pos.y, rng.int(50, 78), 4, 0, '#7dffb0', { permanent: true }); }
+      }
     },
 
     nextSector() {
@@ -247,8 +267,9 @@
       }
     },
 
-    spawnHazard(x, y, r, dmg, life, color) {
-      this.hazards.push({ x, y, r, dmg, life, maxLife: life, color, tickCd: 0 });
+    spawnHazard(x, y, r, dmg, life, color, opts) {
+      opts = opts || {};
+      this.hazards.push({ x, y, r, dmg, life, maxLife: life, color, tickCd: 0, active: true, permanent: !!opts.permanent, periodic: opts.periodic || null, phase: opts.phase || 0 });
     },
 
     hitStop(t) { this.hitStopT = Math.max(this.hitStopT, Math.min(t, CFG.hitStopMax)); },
@@ -321,6 +342,49 @@
       return chosen;
     },
 
+    // ---- Reconstructor stations ---------------------------------------
+    _stationProximity() {
+      this._nearStation = null;
+      const p = this.player;
+      for (const pk of this.pickups) {
+        if (pk.kind !== 'station' || !pk.alive) continue;
+        if (M.dist(pk.x, pk.y, p.x, p.y) < pk.r + p.radius + 18) {
+          this._nearStation = pk;
+          if (RE.Input.pressed('interact')) this.openStation(pk);
+          break;
+        }
+      }
+    },
+    openStation(st) { this.station = st; this.state = 'station'; RE.Menus.focus = 0; RE.Audio.sfx('equip'); },
+    closeStation() { this.station = null; this.state = 'playing'; },
+    stationRepair() {
+      const st = this.station; const cost = 20 + st.stock.repairUses * 10;
+      if (this.salvage < cost) { RE.Audio.sfx('lowpower'); return; }
+      this.salvage -= cost; st.stock.repairUses++;
+      this.player.heal(30); RE.Audio.sfx('pickup'); RE.HUD.toast('+30 hull', { color: '#5affa0', life: 1.4 });
+    },
+    stationRefill() {
+      const st = this.station;
+      if (st.stock.refillUsed) return;
+      st.stock.refillUsed = true;
+      this.player.energy = this.player.energyMax; RE.Audio.sfx('energy');
+    },
+    stationReroll() {
+      if (this.salvage < 12) { RE.Audio.sfx('lowpower'); return; }
+      this.salvage -= 12; this.station.stock.modules = this._rollModules(3); RE.Audio.sfx('ui');
+    },
+    stationBuy(def, idx) {
+      const cost = { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60;
+      if (this.salvage < cost) { RE.Audio.sfx('lowpower'); return; }
+      this.salvage -= cost;
+      const prev = this.player.modules[def.slot];
+      this.player.equip(def.id);
+      this.station.stock.modules[idx] = null;
+      RE.Audio.sfx('equip'); RE.HUD.toast('INSTALLED: ' + def.name, { color: '#ff8adf', life: 2.2, big: true });
+      if (prev && prev !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[prev].name, { color: 'rgba(200,200,200,0.7)', life: 1.8 });
+    },
+    stationCost(def) { return { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60; },
+
     presentReward(choices, title) { this.rewardChoices = choices; this.rewardTitle = title || 'SALVAGE RECOVERED'; this.state = 'reward'; RE.Menus.focus = 0; },
     chooseReward(def) {
       const prev = this.player.modules[def.slot];
@@ -362,6 +426,7 @@
       if (this.state === 'playing' || this.state === 'paused') { if (RE.Input.pressed('pause')) this.togglePause(); }
       else if (this.state === 'meta') { if (RE.Input.keyPressed('Escape')) this.closeMeta(); }
       else if (this.state === 'codex') { if (RE.Input.keyPressed('Escape')) this.closeCodex(); }
+      else if (this.state === 'station') { if (RE.Input.keyPressed('Escape')) this.closeStation(); }
 
       if (this.state === 'playing') this._updatePlaying(dt);
       RE.HUD.update(dt);
@@ -370,6 +435,18 @@
     _updatePlaying(dt) {
       if (this.hitStopT > 0) { this.hitStopT -= dt; if (this.hitStopT > 0) { RE.Particles.update(dt * 0.15); return; } }
       const p = this.player;
+
+      // Biome EM surges (Static Vaults): periodic echo blackout.
+      this.echoDisabled = false;
+      if (this.biomeMod.emp) {
+        const period = 15;
+        this._empT = (this._empT || 0) + dt;
+        const phase = this._empT % period;
+        this.echoDisabled = phase < 2.5;
+        if (this.echoDisabled && !this._empWas) { RE.Audio.sfx('boss'); RE.HUD.showBanner('EM SURGE', 'echo jammed', 1.4); this.camera.addTrauma(0.3); }
+        this._empWas = this.echoDisabled;
+      }
+
       RE.Echo.update(dt, p);
       p.update(dt, this);
 
@@ -378,6 +455,7 @@
       this._projectileCollisions();
       for (const pk of this.pickups) if (pk.alive) pk.update(dt, this);
       this._nodeDocking(dt);
+      this._stationProximity();
       this._pickupPings();
       this._updateHazards(dt);
       this._checkExit();
@@ -436,9 +514,13 @@
       const p = this.player;
       for (let i = this.hazards.length - 1; i >= 0; i--) {
         const h = this.hazards[i];
-        h.life -= dt; h.tickCd -= dt;
-        if (h.life <= 0) { this.hazards.splice(i, 1); continue; }
-        if (p.alive && M.dist(h.x, h.y, p.x, p.y) < h.r + p.radius && h.tickCd <= 0) {
+        h.tickCd -= dt;
+        if (!h.permanent) { h.life -= dt; if (h.life <= 0) { this.hazards.splice(i, 1); continue; } }
+        if (h.periodic) {
+          const cyc = h.periodic.on + h.periodic.off;
+          h.active = ((this.time + h.phase) % cyc) < h.periodic.on;
+        }
+        if (h.active && p.alive && M.dist(h.x, h.y, p.x, p.y) < h.r + p.radius && h.tickCd <= 0) {
           h.tickCd = 0.5;
           this.damagePlayer(h.dmg, { x: h.x, y: h.y });
         }
@@ -497,6 +579,7 @@
       RE.HUD.render(ctx, this);
       if (this.state === 'paused') RE.Menus.pause(ctx, this);
       else if (this.state === 'reward') RE.Menus.reward(ctx, this);
+      else if (this.state === 'station') RE.Menus.station(ctx, this);
       else if (this.state === 'dead') RE.Menus.gameover(ctx, this);
       this._cursor(ctx);
     },
@@ -559,10 +642,18 @@
     _renderHazards(ctx, camX, camY) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       for (const h of this.hazards) {
-        const a = M.clamp(h.life / h.maxLife, 0, 1) * 0.4;
-        const gr = ctx.createRadialGradient(h.x - camX, h.y - camY, 0, h.x - camX, h.y - camY, h.r);
+        let a = h.permanent ? 0.5 : M.clamp(h.life / h.maxLife, 0, 1) * 0.4;
+        if (h.periodic && !h.active) a *= 0.18;  // dim + warn when off
+        const sx = h.x - camX, sy = h.y - camY;
+        const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, h.r);
         gr.addColorStop(0, RE.M.rgba(h.color, a)); gr.addColorStop(1, RE.M.rgba(h.color, 0));
-        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(h.x - camX, h.y - camY, h.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(sx, sy, h.r, 0, Math.PI * 2); ctx.fill();
+        // active-edge ring for periodic hazards
+        if (h.periodic) {
+          ctx.strokeStyle = RE.M.rgba(h.color, (h.active ? 0.6 : 0.25));
+          ctx.lineWidth = h.active ? 2 : 1;
+          ctx.beginPath(); ctx.arc(sx, sy, h.r * 0.7, 0, Math.PI * 2); ctx.stroke();
+        }
       }
       ctx.restore();
     },

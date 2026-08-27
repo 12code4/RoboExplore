@@ -39,7 +39,7 @@
       gen: { fill: 0.42, steps: 4, openness: 1 },
       enemies: ['gloom_crawler', 'rift_spitter', 'echo_wraith', 'hollow_stalker'],
       boss: null, music: 3,
-      mod: { echoRangeMul: 1.35, ice: true },   // cold air conducts: echo reaches far, floor slides
+      mod: { echoRangeMul: 1.35, ice: true, decelMul: 0.35 },   // cold air conducts: echo reaches far, floor slides
       vibe: 'Cold, immense, lethally beautiful. You see far — but cannot brake.',
     },
     {

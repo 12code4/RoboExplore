@@ -47,6 +47,27 @@
         ctx.fillRect(0, 0, W, H);
       }
 
+      // Overheat vignette + warning (Core Marrow).
+      if (p.overheating) {
+        const pulse = 0.5 + 0.5 * Math.sin(game.time * 10);
+        const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.7);
+        vg.addColorStop(0, 'rgba(0,0,0,0)');
+        vg.addColorStop(1, `rgba(255,90,20,${0.3 + 0.2 * pulse})`);
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+        ctx.textAlign = 'center'; ctx.font = 'bold 15px monospace';
+        ctx.fillStyle = `rgba(255,160,90,${0.7 + 0.3 * pulse})`;
+        ctx.fillText('OVERHEATING — KEEP MOVING', W / 2, H * 0.22);
+      }
+      // EM jam warning (Static Vaults).
+      if (game.echoDisabled) {
+        const flick = Math.random() < 0.5 ? 0.5 : 0.9;
+        ctx.textAlign = 'center'; ctx.font = 'bold 15px monospace';
+        ctx.fillStyle = `rgba(255,170,60,${flick})`;
+        ctx.fillText('◈ SIGNAL JAMMED ◈', W / 2, H * 0.22);
+        // faint static specks
+        for (let i = 0; i < 30; i++) { ctx.fillStyle = `rgba(200,220,255,${Math.random() * 0.08})`; ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
+      }
+
       // --- Bottom-left status cluster ---
       const bx = 18, by = H - 64;
       // Hull bar
@@ -88,6 +109,15 @@
 
       // --- Enemies remaining hint (subtle) ---
       // (kept minimal to preserve tension)
+
+      // --- Interact prompt (near a Reconstructor) ---
+      if (game._nearStation) {
+        const pulse = 0.6 + 0.4 * Math.sin(game.time * 4);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillStyle = `rgba(255,220,140,${pulse})`;
+        ctx.fillText('[ R ]  RECONSTRUCTOR', W / 2, H - 96);
+      }
 
       // --- Banner ---
       if (this.banner) this._banner(ctx, W, H);

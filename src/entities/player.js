@@ -161,6 +161,7 @@
       // ---- Echo pulse (with Echo-Charge + Twin-Pulse) ------------------
       echo(game) {
         if (this.echoCd > 0) return;
+        if (game.echoDisabled) { RE.Audio.sfx('lowpower'); RE.HUD.toast('SIGNAL JAMMED', { color: '#ff9a3f', life: 1.0 }); return; }
         const cost = Math.max(1, CFG.player.echoCost + this.stats.echoCostAdd);
         if (!this.spend(cost)) { RE.Audio.sfx('lowpower'); game.flashEnergy(); return; }
         this.echoCd = CFG.player.echoCooldown + this.stats.echoCdAdd;
@@ -377,7 +378,8 @@
           const speedMul = this.stats.speedMul * (game.biomeMod.speedMul || 1);
           const maxSpd = CFG.player.maxSpeed * speedMul;
           const tvx = mv.x * maxSpd, tvy = mv.y * maxSpd;
-          const rate = (mv.len > 0.05 ? CFG.player.accel : CFG.player.decel) * dt;
+          const decel = CFG.player.decel * (game.biomeMod.decelMul || 1);   // ice slides
+          const rate = (mv.len > 0.05 ? CFG.player.accel : decel) * dt;
           this.vx = M.approach(this.vx, tvx, rate);
           this.vy = M.approach(this.vy, tvy, rate);
           if (mv.len > 0.05) { this.moveAngle = Math.atan2(mv.y, mv.x); this.walkCycle += dt * 12; }
@@ -399,7 +401,18 @@
         this.speed = Math.hypot(this.vx, this.vy);
         this.thruster = M.clamp(this.speed / CFG.player.maxSpeed, 0, 1);
 
-        // shots light the way
+        // Biome: overheat when idling too long (The Core Marrow).
+        this.overheating = false;
+        if (game.biomeMod.overheat && !this.dashing) {
+          if (this.speed < 16) this._stillT = (this._stillT || 0) + dt; else this._stillT = 0;
+          if (this._stillT > 2.5) {
+            this.overheating = true;
+            const rate = 1.5 * (1 + (this._stillT - 2.5) * 0.35);
+            this.hull -= rate * dt;
+            if (Math.random() < 0.3) Particles.emit({ x: this.x + (Math.random() - 0.5) * 18, y: this.y - 8, vx: 0, vy: -46, life: 0.5, size: 3, color: '#ff6a2a', drag: 1, kind: 'dot' });
+            if (this.hull <= 0) { this.hull = 0; this.die(game); }
+          }
+        } else this._stillT = 0;
       },
 
       render(ctx, cam) {

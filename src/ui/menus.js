@@ -229,6 +229,56 @@
       return yy;
     },
 
+    station(ctx, game) {
+      const W = RE.CFG.viewW, H = RE.CFG.viewH;
+      this._dim(ctx, W, H, 0.62);
+      this.begin(game);
+      ctx.textAlign = 'center';
+      this._titleGlow(ctx, 'RECONSTRUCTOR', W / 2, H * 0.13, 28, '#ffd27a');
+      ctx.font = 'bold 14px monospace'; ctx.fillStyle = '#ffe27a';
+      ctx.fillText(`◈ ${game.salvage} salvage`, W / 2, H * 0.13 + 26);
+
+      const st = game.station; if (!st) { this.end(); return; }
+      const mods = st.stock.modules;
+      // module cards
+      const cw = 200, ch = 150, gap = 22;
+      const totalW = mods.length * cw + (mods.length - 1) * gap;
+      let cx = (W - totalW) / 2; const cy = H * 0.26;
+      for (let i = 0; i < mods.length; i++) {
+        const def = mods[i];
+        const idx = this._i++;
+        const hover = RE.Input.mouse.x >= cx && RE.Input.mouse.x <= cx + cw && RE.Input.mouse.y >= cy && RE.Input.mouse.y <= cy + ch;
+        if (hover && game._mouseMoved) this.focus = idx;
+        const focused = idx === this.focus, active = focused || hover;
+        if (def) {
+          this._card(ctx, def, cx, cy, cw, ch, active);
+          const cost = game.stationCost(def);
+          const afford = game.salvage >= cost;
+          ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace';
+          ctx.fillStyle = afford ? '#ffe27a' : 'rgba(180,160,120,0.5)';
+          ctx.fillText('◈ ' + cost, cx + cw / 2, cy + ch - 12);
+          const clicked = (hover && game.mousePressed) || (focused && (RE.Input.keyPressed('Enter') || RE.Input.keyPressed('Space')));
+          if (clicked && afford) game.stationBuy(def, i);
+        } else {
+          ctx.fillStyle = 'rgba(18,26,36,0.6)'; this._rr(ctx, cx, cy, cw, ch, 10); ctx.fill();
+          ctx.strokeStyle = 'rgba(90,100,120,0.3)'; this._rr(ctx, cx, cy, cw, ch, 10); ctx.stroke();
+          ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(120,130,150,0.5)'; ctx.font = '12px monospace';
+          ctx.fillText('— installed —', cx + cw / 2, cy + ch / 2);
+        }
+        cx += cw + gap;
+      }
+
+      // service buttons
+      const bw = 190, bh = 40, by = cy + ch + 26;
+      const repairCost = 20 + st.stock.repairUses * 10;
+      const gx = (W - (bw * 4 + 30)) / 2;
+      if (this.button(ctx, game, { x: gx, y: by, w: bw, h: bh, label: 'REPAIR +30', sub: `◈ ${repairCost}`, font: 'bold 14px monospace' })) game.stationRepair();
+      if (this.button(ctx, game, { x: gx + bw + 10, y: by, w: bw, h: bh, label: st.stock.refillUsed ? 'ENERGY: TAPPED' : 'ENERGY TAP', sub: st.stock.refillUsed ? '' : 'free refill', font: 'bold 14px monospace', disabled: st.stock.refillUsed })) game.stationRefill();
+      if (this.button(ctx, game, { x: gx + (bw + 10) * 2, y: by, w: bw, h: bh, label: 'REROLL STOCK', sub: '◈ 12', font: 'bold 14px monospace' })) game.stationReroll();
+      if (this.button(ctx, game, { x: gx + (bw + 10) * 3, y: by, w: bw, h: bh, label: 'LEAVE', font: 'bold 14px monospace' })) game.closeStation();
+      this.end();
+    },
+
     meta(ctx, game) {
       const W = RE.CFG.viewW, H = RE.CFG.viewH;
       this._dim(ctx, W, H, 0.8);
