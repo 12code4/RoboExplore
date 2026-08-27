@@ -112,6 +112,8 @@
       let by = H * 0.4;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: 'RESUME' })) game.togglePause();
       by += bh + 10;
+      if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '❒  CODEX', font: 'bold 15px monospace' })) { game.state = 'playing'; game.openCodex('paused'); }
+      by += bh + 10;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: (RE.Audio.muted ? 'SOUND: OFF' : 'SOUND: ON'), font: 'bold 15px monospace' })) { const m = RE.Audio.toggleMute(); RE.Save.data.settings.muted = m; RE.Save.save(); }
       by += bh + 10;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: 'ABANDON RUN', sub: 'return to title' })) game.abandonRun();
