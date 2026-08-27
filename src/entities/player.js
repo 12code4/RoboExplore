@@ -15,7 +15,7 @@
       energyMaxAdd: 0, energyRegenAdd: 0, energyRegenMul: 1, regenDelayAdd: 0,
       echoRangeMul: 1, echoBandMul: 1, echoHoldAdd: 0, echoCostAdd: 0, echoCdAdd: 0,
       twinPulse: false,
-      markFromEcho: false, markBonus: 0.3, markDur: 3.5,   // Predator Lens
+      markFromEcho: false, markDur: 3.5,   // Predator Lens: extends duration/sources only (no extra mult)
       damageMul: 1, armorMul: 1, hullMaxAdd: 0,
       lightInnerMul: 1, lightOuterMul: 1,
       magnetRange: 0, magnetBonus: 0,

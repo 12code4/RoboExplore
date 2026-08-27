@@ -24,14 +24,26 @@
       this.y = y - this.viewH / 2;
     },
 
-    follow(targetX, targetY, vx, vy, cfg, dt, bounds) {
-      const look = cfg.lookAhead || 0;
-      this.tx = targetX + (vx || 0) * look;
-      this.ty = targetY + (vy || 0) * look;
+    follow(targetX, targetY, vx, vy, cfg, dt, bounds, cursor) {
+      // velocity lead — so pulses reveal ahead of your motion
+      let leadX = M.clamp((vx || 0) * cfg.lookAheadVel, -cfg.lookAheadMax, cfg.lookAheadMax);
+      let leadY = M.clamp((vy || 0) * cfg.lookAheadVel, -cfg.lookAheadMax, cfg.lookAheadMax);
+      // aim bias — bias the view toward where you're aiming
+      if (cursor) {
+        leadX += M.clamp((cursor.x - targetX) * cfg.aimBias, -cfg.aimMax, cfg.aimMax);
+        leadY += M.clamp((cursor.y - targetY) * cfg.aimBias, -cfg.aimMax, cfg.aimMax);
+      }
+      this.tx = targetX + leadX;
+      this.ty = targetY + leadY;
       const cx = this.x + this.viewW / 2;
       const cy = this.y + this.viewH / 2;
-      const ncx = M.damp(cx, this.tx, cfg.followLambda, dt);
-      const ncy = M.damp(cy, this.ty, cfg.followLambda, dt);
+      // deadzone kills micro-jitter when nearly settled
+      const dz = cfg.deadzone || 0;
+      let tx = this.tx, ty = this.ty;
+      if (Math.abs(tx - cx) < dz && Math.abs(vx || 0) < 6) tx = cx;
+      if (Math.abs(ty - cy) < dz && Math.abs(vy || 0) < 6) ty = cy;
+      const ncx = M.damp(cx, tx, cfg.followLambda, dt);
+      const ncy = M.damp(cy, ty, cfg.followLambda, dt);
       this.x = ncx - this.viewW / 2;
       this.y = ncy - this.viewH / 2;
       if (bounds) this._clamp(bounds);

@@ -78,7 +78,7 @@
       // Echo cooldown pip
       const echoFrac = 1 - M.clamp(p.echoCd / RE.CFG.player.echoCooldown, 0, 1);
       this._pip(ctx, bx + 232, by + 4, 16, echoFrac, '#8ef', 'E');
-      const dashFrac = 1 - M.clamp(p.dashCd / (RE.CFG.player.dashCooldown * p.stats.dashCdMul), 0, 1);
+      const dashFrac = 1 - M.clamp(p.dashCd / (RE.CFG.player.dashCooldown + p.stats.dashCdAdd), 0, 1);
       this._pip(ctx, bx + 268, by + 4, 16, dashFrac, '#7dd', '⇢');
 
       // --- Top-left: sector / biome ---

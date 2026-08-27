@@ -147,9 +147,11 @@
         case 'shoot_heavy':
           this.tone({ type: 'sawtooth', freq: 240, to: 90, dur: 0.16, gain: 0.2, filter: { type: 'lowpass', freq: 1400 } });
           break;
-        case 'hit':
-          this.noise({ dur: 0.1, freq: 2200, to: 700, gain: 0.18, type: 'highpass', q: 0.6 });
+        case 'hit': {
+          const m = param || 1;   // pitch multiplier (tracks target HP)
+          this.noise({ dur: 0.09, freq: 2200 * m, to: 700 * m, gain: 0.16, type: 'highpass', q: 0.6 });
           break;
+        }
         case 'enemy_die':
           this.noise({ dur: 0.32, freq: 900, to: 120, gain: 0.24, type: 'bandpass', q: 0.8 });
           this.tone({ type: 'square', freq: 200, to: 60, dur: 0.26, gain: 0.14 });

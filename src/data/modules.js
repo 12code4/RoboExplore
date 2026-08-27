@@ -80,7 +80,7 @@
     'u-lens': {
       id: 'u-lens', name: 'Predator Lens', slot: 'utility', rarity: 'rare',
       desc: 'Echo/light MARKS foes 3.5s: +30% damage, outlined even in the dark.',
-      apply: (s) => { s.markFromEcho = true; s.markBonus = 0.3; s.markDur = 3.5; },
+      apply: (s) => { s.markFromEcho = true; s.markDur = 3.5; },
     },
 
     // ============ DEFENSE ============

@@ -280,7 +280,8 @@
         if (d < radius) {
           const a = Math.atan2(e.y - y, e.x - x);
           e.takeDamage(dmg * (1 - d / radius * 0.5), Math.cos(a) * 200, Math.sin(a) * 200, this);
-          if (stun) { e.state = 'flinch'; e.stateT = Math.max(0, 0.15 - stun); }
+          // flinch lasts ~0.15s + stun (stateT counts up, exits at >0.15)
+          if (stun) { e.state = 'flinch'; e.stateT = -stun; }
         }
       }
     },
@@ -490,8 +491,10 @@
 
       RE.Particles.update(dt);
       // Keep the player centered (no hard bounds clamp) — the dark void beyond
-      // the map border is invisible, and centering reads far better.
-      this.camera.follow(p.x, p.y, p.vx, p.vy, CFG.camera, dt, null);
+      // the map border is invisible, and centering reads far better. Lead the
+      // view by velocity + aim so pulses reveal where you're going/looking.
+      const cursor = this.camera.toWorld(RE.Input.mouse.x, RE.Input.mouse.y);
+      this.camera.follow(p.x, p.y, p.vx, p.vy, CFG.camera, dt, null, cursor);
       this.camera.update(dt);
 
       this.enemies = this.enemies.filter(e => e.alive);
@@ -603,7 +606,9 @@
               const kb = pr.knockback || 120;
               e.takeDamage(pr.damage, Math.cos(a) * kb, Math.sin(a) * kb, this);
               pr._impact(this, false);
-              this.hitStop(CFG.hitStopKill);
+              // hit-stop only on a KILL (weightier for tough foes) — a stop on
+              // every bullet would micro-stutter the whole game while firing.
+              if (!e.alive) { const heavy = (e.def.danger || 0) >= 5 || e.isBoss; this.hitStop(heavy ? 0.07 : CFG.hitStopKill); }
               if (pr.splash > 0) {
                 for (const o of this.enemies) { if (o !== e && o.alive && M.dist(pr.x, pr.y, o.x, o.y) < pr.splash) o.takeDamage(pr.splashDmg, 0, 0, this); }
                 RE.Particles.burst(pr.x, pr.y, 10, { speed: 200, color: pr.color, life: 0.4, size: 3, kind: 'spark' });

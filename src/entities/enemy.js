@@ -52,6 +52,8 @@
         this.awake = true;
         this.vis = Math.max(this.vis, 0.6);
         this.vx += (kx || 0); this.vy += (ky || 0);
+        // hit sound, pitched up as the enemy nears death
+        RE.Audio.sfx('hit', 0.8 + (1 - Math.max(0, this.hp) / this.maxHp) * 0.7);
         Particles.burst(this.x, this.y, 4, { speed: 90, color: def.glow, life: 0.25, size: 2.5, kind: 'spark' });
         if (this.hp <= 0) this.die(game);
       },
@@ -81,8 +83,8 @@
         if (p.stats.markFromEcho) { this.marked = Math.max(this.marked, p.stats.markDur); this.lensMarked = true; }
         // Warden Node is charged (awoken) by pulses washing it.
         if (this.def.ai === 'turret') this.charges++;
-        // fragile flinch
-        if (this.maxHp <= 24 && this.state !== 'lunge' && this.state !== 'pounce') { this.state = 'flinch'; this.stateT = 0; }
+        // fragile flinch (mines keep arming — they must not be reset by a pulse)
+        if (this.maxHp <= 24 && this.def.ai !== 'mine' && this.state !== 'lunge' && this.state !== 'pounce') { this.state = 'flinch'; this.stateT = 0; }
         // resonant cannon echo damage
         if (p.stats.echoDamage > 0) this.takeDamage(p.stats.echoDamage, 0, 0, game);
         if (this.def.wakeOnPing !== false) this.awake = true;
@@ -278,8 +280,10 @@
           if (this.stateT > def.blinkDelay && !this._blinked) {
             this._blinked = true;
             const a = Math.atan2(p.y - this.y, p.x - this.x);
-            this.x = p.x - Math.cos(a) * 30; this.y = p.y - Math.sin(a) * 30;
-            this._curContact = def.slashDamage;
+            // blink to just inside melee reach and land a discrete slash
+            this.x = p.x - Math.cos(a) * (this.r + p.radius - 6);
+            this.y = p.y - Math.sin(a) * (this.r + p.radius - 6);
+            game.damagePlayer(def.slashDamage * this.dmgMul, this);
             Particles.burst(this.x, this.y, 12, { speed: 200, color: '#fff', life: 0.3, size: 3, kind: 'spark' });
           }
           if (this.stateT > def.materialTime) { this.state = 'phased'; this.stateT = 0; this._blinked = false; }
