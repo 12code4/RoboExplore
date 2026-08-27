@@ -226,8 +226,7 @@
         }
         Particles.burst(this.x + Math.cos(this.facing) * this.radius, this.y + Math.sin(this.facing) * this.radius,
           3, { speed: 90, color: w.color, life: 0.15, size: 2.5, dir: this.facing, spread: 0.5, kind: 'spark' });
-        this.vx -= Math.cos(this.facing) * 16;
-        this.vy -= Math.sin(this.facing) * 16;
+        // (no velocity pushback — it accumulated into backward drift during auto-fire)
         game.camera.addTrauma(w.heavy ? 0.18 : 0.03);
       },
 

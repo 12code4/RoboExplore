@@ -742,12 +742,20 @@
 
     _renderEchoRings(ctx, camX, camY) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const accent = this.biome.palette.accent;
       for (const pulse of RE.Echo.pulses) {
-        const t = pulse.r / pulse.maxR; const alpha = (1 - t) * 0.5;
-        if (alpha <= 0.01 || pulse.r < 0) continue;
-        ctx.strokeStyle = RE.M.rgba(this.biome.palette.accent, alpha);
-        ctx.lineWidth = 2.5 * (1 - t) + 0.5;
-        ctx.beginPath(); ctx.arc(pulse.x - camX, pulse.y - camY, pulse.r, 0, Math.PI * 2); ctx.stroke();
+        const t = pulse.r / pulse.maxR;
+        if (t >= 1 || pulse.r < 1) continue;
+        const a = 1 - t;
+        const sx = pulse.x - camX, sy = pulse.y - camY;
+        // soft wide band — the glowing annulus (design §3.2)
+        ctx.strokeStyle = RE.M.rgba(accent, 0.16 * a);
+        ctx.lineWidth = 16 * a + 4;
+        ctx.beginPath(); ctx.arc(sx, sy, pulse.r, 0, Math.PI * 2); ctx.stroke();
+        // bright leading edge
+        ctx.strokeStyle = RE.M.rgba('#eaffff', 0.5 * a);
+        ctx.lineWidth = 2 * a + 0.6;
+        ctx.beginPath(); ctx.arc(sx, sy, pulse.r, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.restore();
     },

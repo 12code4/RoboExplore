@@ -8,7 +8,7 @@
   const ENEMIES = {
     skitter: {
       id: 'skitter', name: 'Skitter', ai: 'chaser', shape: 'crawler',
-      hp: 16, radius: 10, speed: 150, touchDamage: 10, danger: 2,
+      hp: 10, radius: 10, speed: 130, touchDamage: 6, danger: 2,
       color: '#ff5a6e', glow: '#ff9aa8', salvage: [1, 3], firstSector: 1,
     },
     lumen_moth: {

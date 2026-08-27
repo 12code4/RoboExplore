@@ -26,12 +26,12 @@
     'w-ricochet': {
       id: 'w-ricochet', name: 'Ricochet Array', slot: 'weapon', rarity: 'uncommon',
       desc: 'Shots ricochet off walls x3 at full damage — hit around corners.',
-      apply: (s) => { s.weapon = { name: 'Ricochet Array', damage: 12, fireRate: 6, count: 1, spread: 0.05, speed: 440, life: 1.3, radius: 3.4, energy: 0, bounce: 3, color: '#9fe4ff', illuminate: 12 }; },
+      apply: (s) => { s.weapon = { name: 'Ricochet Array', damage: 9, fireRate: 6, count: 1, spread: 0.05, speed: 440, life: 1.3, radius: 3.4, energy: 0, bounce: 3, color: '#9fe4ff', illuminate: 12 }; },
     },
     'w-siege': {
       id: 'w-siege', name: 'Siege Capacitor', slot: 'weapon', rarity: 'legendary',
       desc: 'Every 5th shot SURGES: big damage, splash, knockback. Rewards aggression.',
-      apply: (s) => { s.weapon = { name: 'Siege Capacitor', damage: 12, fireRate: 6, count: 1, spread: 0.05, speed: 640, life: 0.6, radius: 4, energy: 4, color: '#ffb14a', surgeEvery: 5, surgeDamage: 34, surgeEnergy: 14, splash: 44, splashDamage: 16, knockback: 200, illuminate: 14 }; },
+      apply: (s) => { s.weapon = { name: 'Siege Capacitor', damage: 9, fireRate: 6, count: 1, spread: 0.05, speed: 640, life: 0.6, radius: 4, energy: 4, color: '#ffb14a', surgeEvery: 5, surgeDamage: 34, surgeEnergy: 14, splash: 44, splashDamage: 16, knockback: 200, illuminate: 14 }; },
     },
 
     // ============ MOBILITY ============
