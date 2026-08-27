@@ -158,11 +158,16 @@
 
       const count = Math.min(22, Math.round(5 + n * 0.85));
       const pool = biome.enemies;
+      // per-type filler caps: heavy/mini-boss enemies must stay rare
+      const caps = { leviathan_eye: 1, warden_node: 2 };
+      const counts = {};
       for (let i = 0; i < count; i++) {
         const idx = gen.pickFeatureCell(10, 3);
         const pos = cell(idx);
-        const id = rng.pick(pool);
-        const elite = rng.next() < eliteChance;
+        let id = rng.pick(pool), tries = 0;
+        while (caps[id] && (counts[id] || 0) >= caps[id] && tries++ < 6) id = rng.pick(pool);
+        counts[id] = (counts[id] || 0) + 1;
+        const elite = id !== 'leviathan_eye' && rng.next() < eliteChance;
         this.enemies.push(RE.makeEnemy(id, pos.x, pos.y, n, elite));
       }
 
