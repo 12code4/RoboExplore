@@ -220,6 +220,12 @@
     },
 
     _endRun() {
+      if (this.won) {
+        RE.Save.data.clears = (RE.Save.data.clears || 0) + 1;
+        RE.Save.data.unlocks.ngplus = true;              // unlock post-1.0 content hook
+        // Ending B (the twist) if both key logs were ever recovered.
+        this.endingB = !!(RE.Save.data.logsFound['a_before'] && RE.Save.data.logsFound['a_none']);
+      }
       const bonusShards = Math.floor(this.salvage / 120);
       this.runShards += bonusShards;
       // first-reach milestone shards
@@ -249,6 +255,8 @@
     spawnEnemyPing(x, y) { RE.Echo.spawnPing(x, y, '#ff5a6e'); },
 
     flashEnergy() { if (this.player) this.player.energyFlash = 0.3; },
+
+    screenFlash(color, amt, dur) { this.flashColor = color; this.flashAmt = amt || 0.25; this.flashT = dur || 0.25; this.flashMax = this.flashT; },
 
     dischargePulse(x, y, dmg, radius, stun) {
       radius = radius || 130;
@@ -430,6 +438,7 @@
       else if (this.state === 'station') { if (RE.Input.keyPressed('Escape')) this.closeStation(); }
 
       if (this.state === 'playing') this._updatePlaying(dt);
+      if (this.flashT > 0) this.flashT -= dt;
       RE.HUD.update(dt);
     },
 
@@ -614,6 +623,12 @@
 
       this._renderWorld(ctx);
       RE.HUD.render(ctx, this);
+      // full-screen hurt/impact flash
+      if (this.flashT > 0 && this.flashMax > 0) {
+        ctx.fillStyle = M.rgba(this.flashColor || '#ff3a4a', this.flashAmt * (this.flashT / this.flashMax));
+        ctx.fillRect(0, 0, W, H);
+      }
+
       if (this.state === 'paused') RE.Menus.pause(ctx, this);
       else if (this.state === 'reward') RE.Menus.reward(ctx, this);
       else if (this.state === 'station') RE.Menus.station(ctx, this);

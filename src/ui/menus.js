@@ -137,18 +137,35 @@
       this._dim(ctx, W, H, 0.72);
       this.begin(game);
       const won = game.won;
-      this._titleGlow(ctx, won ? 'CORE REACHED' : 'SIGNAL LOST', W / 2, H * 0.22, 40, won ? '#7affd1' : '#ff4d6d');
+      this._titleGlow(ctx, won ? 'CORE REACHED' : 'SIGNAL LOST', W / 2, H * 0.18, 40, won ? '#7affd1' : '#ff4d6d');
       ctx.textAlign = 'center';
+
+      // Ending narrative (win only).
+      if (won) {
+        ctx.font = 'italic 13px monospace'; ctx.fillStyle = 'rgba(200,235,255,0.85)';
+        const ending = game.endingB
+          ? ['The seat at the bottom is warm. You understand now why it glows.',
+             'You do not sit down. You leave the light lit, and you climb —',
+             'to tell the next one everything before the dark comes back.']
+          : ['The Hollow goes dark, and for the first time it is quiet by choice.',
+             'EX-0 carries the last light up the shaft, one ring at a time.',
+             'The counter on the chassis stops. It does not need to turn again.'];
+        let ey = H * 0.30;
+        for (const l of ending) { ctx.fillText(l, W / 2, ey); ey += 20; }
+      }
+
       ctx.font = '14px monospace'; ctx.fillStyle = '#cfe9ff';
       const r = game.runStats;
       const lines = [
         `reached sector ${r.sector}`,
-        `${r.kills} enemies destroyed`,
-        `score ${r.score}`,
+        `${r.kills} enemies destroyed  ·  score ${r.score}`,
         `✦ ${r.shards} core-shards salvaged`,
       ];
-      let ly = H * 0.35;
+      let ly = won ? H * 0.48 : H * 0.35;
       for (const l of lines) { ctx.fillText(l, W / 2, ly); ly += 22; }
+      // "afford now" nudge — cheapest unbought meta node
+      const nudge = this._cheapestUnbought();
+      if (nudge) { ctx.font = '12px monospace'; ctx.fillStyle = 'rgba(192,160,255,0.8)'; ctx.fillText(`Afford now: ${nudge.name} (✦${nudge.cost})`, W / 2, ly + 4); }
 
       const bw = 240, bh = 44, bx = (W - bw) / 2;
       let by = H * 0.66;
@@ -158,6 +175,17 @@
       by += bh + 10;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: 'TITLE' })) game.gotoTitle();
       this.end();
+    },
+
+    _cheapestUnbought() {
+      const shards = RE.Save.data.coreShards;
+      let best = null;
+      for (const u of (RE.META_UPGRADES || [])) {
+        if (RE.Save.data.unlocks[u.id]) continue;
+        if (u.req && !RE.Save.data.unlocks[u.req]) continue;
+        if (u.cost <= shards && (!best || u.cost < best.cost)) best = u;
+      }
+      return best;
     },
 
     reward(ctx, game) {

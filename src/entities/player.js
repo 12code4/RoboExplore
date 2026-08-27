@@ -281,6 +281,7 @@
         this.iframes = CFG.player.hitIframes;
         this.hitFlash = 0.16;
         RE.Audio.sfx('hurt');
+        game.screenFlash('#ff3a4a', 0.22, 0.22);
         game.camera.addTrauma(0.4 * M.clamp(amt / 25, 0.4, 1));
         game.hitStop(CFG.hitStopHurt);
         // knockback
@@ -362,9 +363,11 @@
           this.energy = Math.min(this.energyMax, this.energy + regen * dt);
         }
 
-        // Low-power warning.
-        if (this.energy / this.energyMax < 0.16 && !this._lowWarn) { this._lowWarn = true; RE.Audio.sfx('lowpower'); }
-        else if (this.energy / this.energyMax > 0.3) this._lowWarn = false;
+        // Low-power heartbeat warning.
+        if (this.energy / this.energyMax < 0.16) {
+          this._heartbeat = (this._heartbeat || 0) - dt;
+          if (this._heartbeat <= 0) { this._heartbeat = 1.1; RE.Audio.sfx('lowpower'); }
+        } else this._heartbeat = 0;
 
         // Movement (move-toward).
         if (this.dashing) {
