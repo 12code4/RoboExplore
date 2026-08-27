@@ -40,9 +40,26 @@ Gamepad and touch input are also supported.
 
 - Explore procedurally generated caverns lit only by your echo.
 - Salvage **◈ salvage** and pick up **modules** that reshape your robot.
-- Find the exit and **descend**. Enemies and hazards escalate with depth.
+- Spend salvage at **Reconstructor Stations** mid-run; find the exit and
+  **descend**. Enemies, bosses, and hazards escalate with depth.
 - Die and you restart — but **✦ core-shards** persist, spent at the
   **Reconstructor** to permanently strengthen future runs.
+
+## Features
+
+- **15 sectors across 5 biomes** — the echo-arc from honest dark, to a
+  bioluminescent grotto, to machinery that jams your sight, to echo-conducting
+  ice, to a self-lit furnace where echo becomes a weapon.
+- **11 echo-aware enemies**, each built around light and darkness — invisible
+  ambushers, weeping-angel hunters that freeze when lit, pulse-drawn swarms,
+  phase predators, and an open-to-damage mini-boss eye.
+- **5 multi-phase bosses** with self-lit, telegraphed attacks — one guards each
+  biome, culminating in AXIS, the Hollow Heart.
+- **18 modules** across weapon / mobility / utility / defense, with real
+  trade-offs and synergies, plus a persistent **Reconstructor** upgrade tree.
+- **Signature twists**: Echo-Resonance (pulses mark enemies), Echo-Charge (shots
+  hit harder right after a pulse), Echo-Return pings, and enemies that hear you.
+- 16 discoverable **log fragments**, a Codex, and two endings.
 
 ## Tech
 

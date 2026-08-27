@@ -1,6 +1,6 @@
 {
   "name": "roboexplore",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "A zero-dependency browser exploration roguelite built around Echo-Sight.",
   "scripts": {

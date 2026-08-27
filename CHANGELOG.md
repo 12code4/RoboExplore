@@ -4,6 +4,35 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.0.0] — Release 🚀
+The complete game: a full descent from the Drowned Intake to the Hollow Heart.
+
+### Added
+- **Five bespoke, multi-phase bosses** — VAULK, ATLAS-7, MNEME, RIG-0, and the
+  finale AXIS — each with self-lit, telegraphed attack scripts (radial, aimed,
+  spiral, shockwave, slam, rotating sweep-beams, add-spawns, sight-stealing
+  blackout, and AXIS's supernova) and a boss health bar. Beating AXIS wins.
+- **Reconstructor Stations** — an in-run salvage economy: install rarity-priced
+  modules, repair, tap free energy, or reroll stock (press R when near one).
+- **Environmental hazards** per biome: EM surges that jam echo + arc floors
+  (Vaults), lava rifts + idle-overheat (Marrow), spore clouds (Hollows), and
+  ice-slide movement (Cryostacks).
+- **The Reclaimer** overstay hunter — escalating self-lit pursuers if you camp
+  a sector past ~2.5 minutes.
+- **Two endings** (the ascent, and a hidden twist when both key logs are found),
+  first-run onboarding tips, a Codex log reader (title & pause), and an
+  "afford now" meta-nudge on death.
+- Juice: atmospheric vignette, hurt/impact screen flash, low-energy heartbeat,
+  kill-only hit-stop, velocity + aim camera look-ahead, a glowing echo annulus.
+
+### Changed / Fixed
+- Retuned every core constant to the canonical design values; kinetic free
+  "Rivet Driver" default weapon.
+- Balance & correctness pass from an adversarial multi-dimension code review
+  (14 verified findings): the Echo Wraith now deals damage; mines survive
+  pulses; Nanofield stun works; Skitter no longer outruns the player; weapon
+  base damage matches canon; heavy filler enemies are capped per sector.
+
 ## [0.5.0-alpha] — 1.0-Alpha
 Feature-complete core loop, playable end to end and reconciled against the full
 design bible (`docs/DESIGN.md`).
