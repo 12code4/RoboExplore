@@ -123,6 +123,17 @@
       this._populateSector(n, biome, srng, isThreshold);
 
       RE.Echo.pulse(sp.x, sp.y, { maxR: 260 });
+      // First-run onboarding tips (once ever).
+      this._sectorT = 0;
+      this._introTips = [];
+      if (n === 1 && !RE.Save.data.seenIntro) {
+        this._introTips = [
+          { t: 1.6, text: 'The Hollow is dark. Press [E] to emit an echo pulse and glimpse the world.' },
+          { t: 6.5, text: 'Everything you do drains ENERGY — the ring around you. It recharges over time and at nodes.' },
+          { t: 12, text: 'Shots fired just after a pulse hit harder. Find the glowing exit shaft to descend.' },
+        ];
+        RE.Save.data.seenIntro = true; RE.Save.save();
+      }
       this.camera.snapTo(sp.x, sp.y);
       RE.HUD.showBanner('SECTOR ' + n, biome.name, 2.4);
       if (biomeChanged) { RE.Audio.startMusic(biome.music); if (biome.vibe) RE.HUD.toast(biome.vibe, { life: 4.2, color: 'rgba(180,210,235,0.8)' }); }
@@ -457,6 +468,12 @@
         this._empWas = this.echoDisabled;
       }
 
+      // release onboarding tips on a timer
+      this._sectorT = (this._sectorT || 0) + dt;
+      if (this._introTips && this._introTips.length && this._sectorT >= this._introTips[0].t) {
+        RE.HUD.toast(this._introTips.shift().text, { life: 5.5, color: 'rgba(180,225,255,0.92)' });
+      }
+
       RE.Echo.update(dt, p);
       p.update(dt, this);
 
@@ -483,7 +500,7 @@
 
       let threat = 0;
       for (const e of this.enemies) if (e.awake && M.dist(e.x, e.y, p.x, p.y) < 360) threat++;
-      RE.Audio.setMusicIntensity(M.clamp(threat / 5, 0, 1));
+      RE.Audio.setMusicIntensity(this.boss && this.boss.alive ? 1 : M.clamp(threat / 5, 0, 1));
     },
 
     _nodeDocking(dt) {
