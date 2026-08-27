@@ -114,6 +114,7 @@
       this.boss = null;
       this.lastPulse = null;
       this._empT = 9; this._empWas = false; this.echoDisabled = false;  // first EM surge ~6s after entry
+      this.bossBeams = [];
       RE.Particles.clear();
 
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
@@ -133,16 +134,14 @@
       const cell = (idx) => { const c = gen.cellXY(idx); return map.centerOfTile(c.x, c.y); };
       const eliteChance = n < 4 ? 0 : Math.min(0.25, (n - 3) * 0.03);
 
-      // Guardian on threshold sectors.
+      // Boss guardian on threshold sectors.
       if (isThreshold) {
-        const gid = RE.GUARDIANS[biome.id];
+        const bid = RE.BIOME_BOSS[biome.id];
         const pos = cell(gen.exitIdx);
-        // place guardian near the exit
-        const g = RE.makeEnemy(gid, pos.x, pos.y, n + 3, false);
-        g.maxHp *= 3.2; g.hp = g.maxHp; g.isBoss = true; g.name = RE.ENEMIES[gid].name;
-        g.dmgMul *= 1.1;
-        this.enemies.push(g);
-        this.boss = g;
+        const boss = RE.makeBoss(bid, pos.x, pos.y, n);
+        this.enemies.push(boss);
+        this.boss = boss;
+        RE.HUD.showBanner(boss.name.split(',')[0], 'guardian of the shaft', 3);
       }
 
       const count = Math.min(22, Math.round(5 + n * 0.85));
@@ -298,6 +297,8 @@
       }
       if (this.boss === e) {
         this.boss = null;
+        // Final guardian (AXIS) — beating it wins the run.
+        if (this.sector >= CFG.sectorsPerRun) { this.win(); return; }
         RE.HUD.showBanner('GUARDIAN FELLED', 'the shaft opens', 2.2);
         RE.Audio.sfx('sector');
         this.pickups.push(RE.makePickup('module', e.x, e.y));
@@ -458,6 +459,7 @@
       this._stationProximity();
       this._pickupPings();
       this._updateHazards(dt);
+      this._updateBossBeams(dt);
       this._checkExit();
 
       RE.Particles.update(dt);
@@ -507,6 +509,41 @@
           else if (pk.kind === 'module' || pk.kind === 'shard' || pk.kind === 'log') col = '#c0a0ff';
           RE.Echo.spawnPing(pk.x, pk.y, col);
         }
+      }
+    },
+
+    _updateBossBeams(dt) {
+      if (!this.bossBeams || !this.bossBeams.length) return;
+      const p = this.player;
+      for (let i = this.bossBeams.length - 1; i >= 0; i--) {
+        const bm = this.bossBeams[i];
+        bm.t += dt; bm.tick -= dt;
+        bm.angle += bm.rot * dt;
+        if (bm.boss && bm.boss.alive) { bm.x = bm.boss.x; bm.y = bm.boss.y; }
+        RE.Echo.washSoft(bm.x, bm.y, bm.len * 0.5, 0.28);
+        if (bm.t >= bm.life) { this.bossBeams.splice(i, 1); continue; }
+        if (p.alive && p.iframes <= 0) {
+          const d = M.dist(bm.x, bm.y, p.x, p.y);
+          if (d < bm.len) {
+            const toP = Math.atan2(p.y - bm.y, p.x - bm.x);
+            if (Math.abs(M.angleDiff(bm.angle, toP)) < bm.arc * 0.5 && bm.tick <= 0) { bm.tick = 0.3; this.damagePlayer(bm.dmg, { x: bm.x, y: bm.y }); }
+          }
+        }
+      }
+    },
+    _renderBossBeams(ctx, camX, camY) {
+      if (!this.bossBeams) return;
+      for (const bm of this.bossBeams) {
+        ctx.save();
+        ctx.translate(bm.x - camX, bm.y - camY);
+        ctx.rotate(bm.angle);
+        ctx.globalCompositeOperation = 'lighter';
+        const grad = ctx.createLinearGradient(0, 0, bm.len, 0);
+        grad.addColorStop(0, RE.M.rgba(bm.color, 0.55));
+        grad.addColorStop(1, RE.M.rgba(bm.color, 0));
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, bm.len, -bm.arc / 2, bm.arc / 2); ctx.closePath(); ctx.fill();
+        ctx.restore();
       }
     },
 
@@ -603,6 +640,7 @@
       const camX = cam.x, camY = cam.y;
       this._renderTiles(ctx, camX, camY);
       this._renderHazards(ctx, camX, camY);
+      this._renderBossBeams(ctx, camX, camY);
       this._renderEchoRings(ctx, camX, camY);
       for (const pk of this.pickups) if (pk.alive) pk.render(ctx, cam, RE.Echo, this.player);
       for (const e of this.enemies) if (e.alive) e.render(ctx, cam, RE.Echo, this.player);
