@@ -1,6 +1,7 @@
 /* RoboExplore — the player robot, EX-0.
- * Movement, dash (i-frames), echo pulse, energy management, modular weapons,
- * shields, and rendering. Everything active draws from the unified ENERGY pool.
+ * Move-toward movement, dash (with phase/blink variants), echo pulse with
+ * Echo-Charge, unified energy, a data-driven modular weapon system, shields,
+ * and reactive defenses. Everything active draws from the ENERGY pool.
  */
 (function (RE) {
   'use strict';
@@ -8,14 +9,31 @@
 
   function baseStats() {
     return {
-      speedMul: 1, dashCdMul: 1, dashIframeMul: 1, dashDistMul: 1, phaseDash: false,
-      echoRangeMul: 1, echoHoldMul: 1,
-      energyMaxAdd: 0, energyRegenMul: 1,
-      hullMaxAdd: 0, magnetRange: 0,
-      barrier: false, barrierCd: 6, discharge: 0,
-      damageMul: 1, fireRateMul: 1,
+      speedMul: 1,
+      dashDistMul: 1, dashCostAdd: 0, dashCdAdd: 0, dashIframeMul: 1,
+      phaseDash: false, phaseWalls: false, dashMicroPulse: false, blinkDash: false,
+      energyMaxAdd: 0, energyRegenAdd: 0, energyRegenMul: 1, regenDelayAdd: 0,
+      echoRangeMul: 1, echoBandMul: 1, echoHoldAdd: 0, echoCostAdd: 0, echoCdAdd: 0,
+      twinPulse: false,
+      markFromEcho: false, markBonus: 0.3, markDur: 3.5,   // Predator Lens
+      damageMul: 1, armorMul: 1, hullMaxAdd: 0,
+      lightInnerMul: 1, lightOuterMul: 1,
+      magnetRange: 0, magnetBonus: 0,
+      momentumRegen: false, momentumSpeed: 120, momentumBonus: 10,
+      shieldHold: false, retaliate: 0, retaliateStun: 0.4, retaliateEnergy: 8,
+      coreVent: false, coreVentUsed: false,
+      echoDamage: 0, echoBuffDamage: 0, echoBuffTime: 0,   // Resonant Cannon
+      weapon: null,   // override weapon config; null => default Rivet Driver
     };
   }
+
+  const DEFAULT_WEAPON = {
+    name: 'Rivet Driver', kinetic: true,
+    damage: CFG.player.weaponDamage, fireRate: CFG.player.fireRate,
+    count: 1, spread: CFG.player.shotSpread, speed: CFG.player.shotSpeed,
+    life: CFG.player.shotLife, radius: CFG.player.shotRadius, pierce: 0, bounce: 0,
+    energy: 0, color: '#bfe9ff', illuminate: CFG.player.shotLightR,
+  };
 
   function makePlayer(x, y) {
     const p = {
@@ -26,29 +44,27 @@
       hull: CFG.player.hullMax, hullMax: CFG.player.hullMax,
       energy: CFG.player.energyMax, energyMax: CFG.player.energyMax,
       energyDelay: 0,
-      dashing: false, dashTimer: 0, dashCd: 0, dashDirX: 1, dashDirY: 0,
+      lightInner: CFG.player.lightInner, lightOuter: CFG.player.lightOuter,
+      dashing: false, dashTimer: 0, dashCd: 0, dashDirX: 1, dashDirY: 0, dashSpeed: 0,
       iframes: 0, hitFlash: 0,
-      fireTimer: 0,
-      echoCd: 0, echoReady: 1,
-      lightRadius: CFG.player.passiveLight,
+      fireTimer: 0, sinceFire: 99,
+      echoCd: 0, sincePulse: 99,
+      surgeCharge: 0, weaponCharge: 0, charging: false,
+      shieldActive: false, shieldAngle: 0,
+      barrierTimer: 0,
       thruster: 0, walkCycle: 0,
-      // loadout: one slot per type
       modules: { weapon: null, mobility: null, utility: null, defense: null },
       stats: baseStats(),
-      barrierCharge: 0, barrierTimer: 0,
-      // stat totals (recomputed)
-      _energyMax: CFG.player.energyMax,
-      lowPowerWarned: false,
+      speed: 0,
+      _lowPing: false, retaliateCd: 0,
 
       equip(moduleId) {
         const def = RE.MODULES[moduleId];
         if (!def) return false;
         this.modules[def.slot] = moduleId;
         this.recompute();
-        RE.Audio.sfx('equip');
         return true;
       },
-
       hasModule(id) { return Object.values(this.modules).includes(id); },
 
       recompute() {
@@ -57,44 +73,51 @@
           const id = this.modules[slot];
           if (!id) continue;
           const def = RE.MODULES[id];
-          if (def && def.apply) def.apply(this);
+          if (def && def.apply) def.apply(this.stats, this);
         }
         const s = this.stats;
         this.energyMax = CFG.player.energyMax + s.energyMaxAdd;
         this.hullMax = CFG.player.hullMax + s.hullMaxAdd;
+        this.lightInner = CFG.player.lightInner * s.lightInnerMul;
+        this.lightOuter = CFG.player.lightOuter * s.lightOuterMul;
         this.hull = Math.min(this.hull, this.hullMax);
         this.energy = Math.min(this.energy, this.energyMax);
-        this.lightRadius = CFG.player.passiveLight;
-        if (s.barrier && this.barrierCharge === 0) this.barrierCharge = 1;
       },
 
-      weaponDef() {
-        const id = this.modules.weapon;
-        const def = id && RE.MODULES[id] && RE.MODULES[id].weapon;
-        return def || RE.MODULES.blaster.weapon;
-      },
+      weaponDef() { return this.stats.weapon || DEFAULT_WEAPON; },
 
       spend(amt) {
+        if (amt <= 0) return true;
         if (this.energy < amt) return false;
         this.energy -= amt;
-        this.energyDelay = CFG.player.energyRegenDelay;
+        this.energyDelay = Math.max(0, CFG.player.energyRegenDelay + this.stats.regenDelayAdd);
         return true;
       },
-
       addEnergy(a) { this.energy = M.clamp(this.energy + a, 0, this.energyMax); },
       heal(a) { this.hull = M.clamp(this.hull + a, 0, this.hullMax); },
 
+      // ---- Dash (with Phase / Blink variants) --------------------------
       dash(game) {
         if (this.dashing || this.dashCd > 0) return;
-        if (!this.spend(CFG.player.dashCost)) { if (this.energy < CFG.player.dashCost) RE.Audio.sfx('lowpower'); return; }
+        const cost = CFG.player.dashCost + this.stats.dashCostAdd;
+        if (this.energy < cost) { RE.Audio.sfx('lowpower'); game.flashEnergy(); return; }
+        this.spend(cost);
         const mv = RE.Input.moveVector();
-        let ang;
-        if (mv.len > 0.1) ang = Math.atan2(mv.y, mv.x);
-        else ang = this.facing;
+        const ang = mv.len > 0.1 ? Math.atan2(mv.y, mv.x) : this.facing;
         this.dashDirX = Math.cos(ang); this.dashDirY = Math.sin(ang);
+        const dist = CFG.player.dashDist * this.stats.dashDistMul;
+
+        if (this.stats.blinkDash) {
+          // Instant teleport to max unobstructed distance up to `dist`.
+          this._blink(game, ang, dist);
+          this.dashCd = CFG.player.dashCooldown + 0.25 + this.stats.dashCdAdd;
+          this.iframes = Math.max(this.iframes, CFG.player.dashIframes * this.stats.dashIframeMul);
+          return;
+        }
+        this.dashSpeed = dist / CFG.player.dashTime;
         this.dashing = true;
         this.dashTimer = CFG.player.dashTime;
-        this.dashCd = CFG.player.dashCooldown * this.stats.dashCdMul;
+        this.dashCd = CFG.player.dashCooldown + this.stats.dashCdAdd;
         this.iframes = Math.max(this.iframes, CFG.player.dashIframes * this.stats.dashIframeMul);
         RE.Audio.sfx('dash');
         game.camera.addTrauma(0.10);
@@ -108,74 +131,172 @@
         }
       },
 
-      echo(game) {
-        if (this.echoCd > 0) return;
-        if (!this.spend(CFG.player.echoCost)) { RE.Audio.sfx('lowpower'); return; }
-        this.echoCd = CFG.player.echoCooldown;
-        RE.Echo.pulse(this.x, this.y, {
-          maxR: CFG.player.echoMaxRadius * this.stats.echoRangeMul,
-        });
-        // temporary boost to hold via echoHoldMul isn't per-pulse in slice; global hold reflects mod
-        RE.Audio.sfx('echo');
-        Particles.ring(this.x, this.y, { color: '#8ef', size: 18, life: 0.5 });
-        game.camera.addTrauma(0.04);
+      _blink(game, ang, dist) {
+        const step = 6; let travelled = 0;
+        let nx = this.x, ny = this.y;
+        while (travelled < dist) {
+          const tx = nx + Math.cos(ang) * step, ty = ny + Math.sin(ang) * step;
+          if (game.map.isWallPx(tx, ty)) break;
+          nx = tx; ny = ty; travelled += step;
+        }
+        Particles.burst(this.x, this.y, 12, { speed: 200, color: '#b6f', life: 0.4, size: 3, kind: 'spark' });
+        this.x = nx; this.y = ny; this.vx = 0; this.vy = 0;
+        Particles.burst(this.x, this.y, 12, { speed: 200, color: '#b6f', life: 0.4, size: 3, kind: 'spark' });
+        RE.Audio.sfx('dash');
+        if (this.stats.dashMicroPulse) this._microPulse(game);
       },
 
+      _endDash(game) {
+        this.dashing = false;
+        // inherit a fraction of dash velocity for a satisfying skid
+        this.vx = this.dashDirX * this.dashSpeed * CFG.player.dashExitInherit;
+        this.vy = this.dashDirY * this.dashSpeed * CFG.player.dashExitInherit;
+        if (this.stats.dashMicroPulse) this._microPulse(game);
+      },
+      _microPulse(game) {
+        RE.Echo.pulse(this.x, this.y, { maxR: 130, speed: 700, strength: 0.9 });
+        game.onPulse(this.x, this.y, 130);
+      },
+
+      // ---- Echo pulse (with Echo-Charge + Twin-Pulse) ------------------
+      echo(game) {
+        if (this.echoCd > 0) return;
+        const cost = Math.max(1, CFG.player.echoCost + this.stats.echoCostAdd);
+        if (!this.spend(cost)) { RE.Audio.sfx('lowpower'); game.flashEnergy(); return; }
+        this.echoCd = CFG.player.echoCooldown + this.stats.echoCdAdd;
+        this.sincePulse = 0;
+        const maxR = CFG.player.echoMaxRadius * this.stats.echoRangeMul * (game.biomeMod.echoRangeMul || 1);
+        const band = CFG.player.echoBandWidth * this.stats.echoBandMul;
+        RE.Echo.pulse(this.x, this.y, { maxR, band });
+        if (this.stats.twinPulse) {
+          // second, tighter ring launched slightly behind the first
+          RE.Echo.pulse(this.x, this.y, { maxR: maxR * 0.65, band: band * 0.65, r0: -30, strength: 0.9 });
+        }
+        // Resonant Cannon buff window
+        if (this.stats.echoBuffDamage) this.stats.echoBuffTime = 1.6;
+        game.onPulse(this.x, this.y, maxR);
+        RE.Audio.sfx('echo');
+        Particles.ring(this.x, this.y, { color: '#8ef', size: 18, life: 0.5 });
+      },
+
+      // ---- Fire (data-driven weapon; charge weapons handled in update) --
       fire(game) {
         const w = this.weaponDef();
-        const interval = 1 / (w.fireRate * this.stats.fireRateMul);
+        const interval = 1 / w.fireRate;
         if (this.fireTimer > 0) return;
-        if (this.energy < w.energy) { if (!this.lowPowerWarned) { RE.Audio.sfx('lowpower'); this.lowPowerWarned = true; } return; }
-        this.lowPowerWarned = false;
-        this.spend(w.energy);
+        if (this.energy < (w.energy || 0)) { if (!this._lowPing) { RE.Audio.sfx('lowpower'); this._lowPing = true; } return; }
+        this._lowPing = false;
         this.fireTimer = interval;
+        this._emitShots(game, w, 1);
+        RE.Audio.sfx(w.heavy ? 'shoot_heavy' : 'shoot');
+      },
+
+      _emitShots(game, w, mult) {
+        this.spend((w.energy || 0) * mult);
+        // Echo-Charge buff
+        const charged = this.sincePulse <= CFG.player.echoChargeWindow;
+        let dmgMul = this.stats.damageMul * (charged ? CFG.player.echoChargeMul : 1);
+        let bonusPierce = charged ? 1 : 0;
+        // Resonant buff
+        if (this.stats.echoBuffTime > 0) dmgMul *= 1 + (this.stats.echoBuffDamage / w.damage);
+        // Siege surge
+        let dmg = w.damage, splash = 0, splashDmg = 0, knock = 0;
+        if (w.surgeEvery) {
+          this.surgeCharge++;
+          if (this.surgeCharge >= w.surgeEvery) {
+            this.surgeCharge = 0; dmg = w.surgeDamage; splash = w.splash; splashDmg = w.splashDamage; knock = w.knockback;
+            this.spend(w.surgeEnergy - (w.energy || 0));
+            RE.Audio.sfx('shoot_heavy');
+          }
+        }
         const count = w.count || 1;
         for (let i = 0; i < count; i++) {
-          const spread = (w.spread || 0);
-          const off = count > 1 ? (i / (count - 1) - 0.5) * spread * 2 : (Math.random() - 0.5) * spread;
+          const off = count > 1 ? (i / (count - 1) - 0.5) * (w.spread || 0) * 2 : (Math.random() - 0.5) * (w.spread || 0);
           const a = this.facing + off;
-          const spd = w.shotSpeed;
           game.spawnProjectile({
             x: this.x + Math.cos(this.facing) * (this.radius + 6),
             y: this.y + Math.sin(this.facing) * (this.radius + 6),
-            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
-            r: w.radius, damage: w.damage * this.stats.damageMul,
-            life: w.life, color: w.color, friendly: true, pierce: w.pierce || 0,
+            vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
+            r: w.radius, damage: dmg * dmgMul,
+            life: w.life, color: w.color, friendly: true,
+            pierce: (w.pierce || 0) + bonusPierce, bounce: w.bounce || 0,
+            illuminate: w.illuminate || 0, splash, splashDmg, knockback: knock,
           });
         }
-        RE.Audio.sfx(w.count > 3 ? 'shoot_heavy' : 'shoot');
-        // muzzle
-        Particles.burst(
-          this.x + Math.cos(this.facing) * this.radius,
-          this.y + Math.sin(this.facing) * this.radius,
+        Particles.burst(this.x + Math.cos(this.facing) * this.radius, this.y + Math.sin(this.facing) * this.radius,
           3, { speed: 90, color: w.color, life: 0.15, size: 2.5, dir: this.facing, spread: 0.5, kind: 'spark' });
-        this.vx -= Math.cos(this.facing) * 20; // slight recoil
-        this.vy -= Math.sin(this.facing) * 20;
+        this.vx -= Math.cos(this.facing) * 16;
+        this.vy -= Math.sin(this.facing) * 16;
+        game.camera.addTrauma(w.heavy ? 0.18 : 0.03);
       },
 
+      _releaseCharge(game) {
+        const w = this.weaponDef();
+        if (!w.charge) { this.charging = false; this.weaponCharge = 0; return; }
+        if (this.weaponCharge >= w.charge && this.energy >= w.energy) {
+          // piercing lance: fast, high-pierce projectile that illuminates
+          this.spend(w.energy);
+          game.spawnProjectile({
+            x: this.x + Math.cos(this.facing) * (this.radius + 6),
+            y: this.y + Math.sin(this.facing) * (this.radius + 6),
+            vx: Math.cos(this.facing) * w.speed, vy: Math.sin(this.facing) * w.speed,
+            r: w.radius, damage: w.damage * this.stats.damageMul,
+            life: w.life, color: w.color, friendly: true,
+            pierce: 999, illuminate: 40, beam: true,
+          });
+          RE.Audio.sfx('shoot_heavy');
+          game.camera.addTrauma(0.22);
+        }
+        this.charging = false; this.weaponCharge = 0;
+      },
+
+      // ---- Damage / death ----------------------------------------------
       damage(amt, source, game) {
         if (this.iframes > 0) return false;
         if (CFG.debug && CFG.debug.invincible) return false;
-        // Barrier absorbs.
-        if (this.stats.barrier && this.barrierCharge > 0) {
-          this.barrierCharge = 0;
-          this.barrierTimer = this.stats.barrierCd;
-          this.iframes = 0.3;
-          RE.Audio.sfx('shield_break');
-          Particles.burst(this.x, this.y, 14, { speed: 220, color: '#6cf', life: 0.4, size: 3, kind: 'spark' });
-          game.camera.addTrauma(0.2);
-          return false;
+        // Deflector shield: block frontal
+        if (this.shieldActive && source && source.x != null) {
+          const ang = Math.atan2(source.y - this.y, source.x - this.x);
+          const diff = Math.abs(M.angleDiff(this.facing, ang));
+          if (diff < 1.22) { // ~140deg arc (±70deg)
+            this.spend(5);
+            Particles.burst(this.x + Math.cos(ang) * this.radius, this.y + Math.sin(ang) * this.radius, 6,
+              { speed: 160, color: '#6cf', life: 0.3, size: 2.5, dir: ang + Math.PI, spread: 1, kind: 'spark' });
+            return false;
+          } else amt *= 0.6;
+        }
+        amt *= this.stats.armorMul;
+        // Core Vent: lethal-save once per sector
+        if (this.stats.coreVent && !this.stats.coreVentUsed && amt >= this.hull) {
+          this.stats.coreVentUsed = true;
+          const e = this.energy;
+          this.energy = 0; this.hull = 1; this.iframes = 1.5;
+          game.dischargePulse(this.x, this.y, e * 2, 220);
+          RE.HUD.showBanner('CORE VENT', '', 1.4);
+          game.camera.addTrauma(0.7);
+          return true;
         }
         this.hull -= amt;
-        this.iframes = CFG.player.iframesOnHit;
+        this.iframes = CFG.player.hitIframes;
         this.hitFlash = 0.16;
         RE.Audio.sfx('hurt');
-        game.camera.addTrauma(0.32);
-        game.hitStop(0.05);
+        game.camera.addTrauma(0.4 * M.clamp(amt / 25, 0.4, 1));
+        game.hitStop(CFG.hitStopHurt);
+        // knockback
+        if (source && source.x != null) {
+          const a = Math.atan2(this.y - source.y, this.x - source.x);
+          this.vx += Math.cos(a) * CFG.player.knockback;
+          this.vy += Math.sin(a) * CFG.player.knockback;
+        }
         Particles.burst(this.x, this.y, 10, { speed: 160, color: '#f66', life: 0.4, size: 3, kind: 'spark' });
-        // Discharge module.
-        if (this.stats.discharge > 0) {
-          game.dischargePulse(this.x, this.y, this.stats.discharge);
+        // Reactive Nanofield
+        if (this.stats.retaliate > 0 && this.retaliateCd <= 0) {
+          this.retaliateCd = 1.2;
+          const hasE = this.energy >= this.stats.retaliateEnergy;
+          if (hasE) this.spend(this.stats.retaliateEnergy);
+          RE.Echo.pulse(this.x, this.y, { maxR: 160, band: 60, speed: 700 });
+          game.onPulse(this.x, this.y, 160);
+          if (hasE) game.dischargePulse(this.x, this.y, this.stats.retaliate, 160, this.stats.retaliateStun);
         }
         if (this.hull <= 0) { this.hull = 0; this.die(game); }
         return true;
@@ -186,85 +307,99 @@
         this.alive = false;
         RE.Audio.sfx('death');
         game.camera.addTrauma(0.9);
-        game.hitStop(0.12);
+        game.hitStop(CFG.hitStopBoss);
         Particles.burst(this.x, this.y, 40, { speed: 320, color: '#8ff', life: 1.0, size: 4, kind: 'spark' });
         Particles.burst(this.x, this.y, 24, { speed: 120, color: '#fff', life: 0.8, size: 3, kind: 'dot' });
         Particles.ring(this.x, this.y, { color: '#8ff', size: 20, life: 0.8 });
         game.onPlayerDeath();
       },
 
+      // ---- Update ------------------------------------------------------
       update(dt, game) {
-        // timers
         if (this.dashCd > 0) this.dashCd -= dt;
         if (this.echoCd > 0) this.echoCd -= dt;
         if (this.fireTimer > 0) this.fireTimer -= dt;
         if (this.iframes > 0) this.iframes -= dt;
         if (this.hitFlash > 0) this.hitFlash -= dt;
         if (this.energyDelay > 0) this.energyDelay -= dt;
-        this.echoReady = this.echoCd <= 0 ? 1 : 0;
+        if (this.retaliateCd > 0) this.retaliateCd -= dt;
+        if (this.energyFlash > 0) this.energyFlash -= dt;
+        this.sincePulse += dt; this.sinceFire += dt;
+        if (this.stats.echoBuffTime > 0) this.stats.echoBuffTime -= dt;
 
-        // Barrier recharge.
-        if (this.stats.barrier) {
-          if (this.barrierCharge <= 0) {
-            this.barrierTimer -= dt;
-            if (this.barrierTimer <= 0) { this.barrierCharge = 1; RE.Audio.sfx('shield'); }
-          }
-        }
-
-        // Aim toward mouse (world).
+        // Aim toward mouse (twin-stick).
         const world = game.camera.toWorld(RE.Input.mouse.x, RE.Input.mouse.y);
         this.facing = Math.atan2(world.y - this.y, world.x - this.x);
 
-        // Input actions.
+        // Actions.
         if (RE.Input.pressed('echo')) this.echo(game);
         if (RE.Input.pressed('dash')) this.dash(game);
-        if (RE.Input.mouse.down) this.fire(game);
 
-        // Energy regen after delay.
-        if (this.energyDelay <= 0 && this.energy < this.energyMax) {
-          this.energy = Math.min(this.energyMax,
-            this.energy + CFG.player.energyRegen * this.stats.energyRegenMul * dt);
+        // Shield hold (Deflector).
+        this.shieldActive = false;
+        if (this.stats.shieldHold && RE.Input.down('shield') && this.energy > 0) {
+          this.shieldActive = true;
+          this.spend(10 * dt);
+          this.shieldAngle = this.facing;
         }
 
-        // Low-power warning ping.
-        if (this.energy / this.energyMax < 0.18 && !this._lowPing) {
-          this._lowPing = true; RE.Audio.sfx('lowpower');
-        } else if (this.energy / this.energyMax > 0.3) this._lowPing = false;
+        // Fire (charge weapons handled on release).
+        const w = this.weaponDef();
+        if (w.charge) {
+          if (RE.Input.mouse.down) { this.charging = true; this.weaponCharge = Math.min(w.charge, this.weaponCharge + dt); }
+          else if (this.charging) { this._releaseCharge(game); }
+        } else if (RE.Input.mouse.down && !this.shieldActive) {
+          this.fire(game);
+        }
 
-        // Movement.
-        const mv = RE.Input.moveVector();
+        // Energy regen (Momentum Cells override).
+        const moving = Math.hypot(this.vx, this.vy) > this.stats.momentumSpeed;
+        if (this.stats.momentumRegen && moving) {
+          this.energy = Math.min(this.energyMax, this.energy + (CFG.player.energyRegen + this.stats.momentumBonus) * dt);
+        } else if (this.energyDelay <= 0 && this.energy < this.energyMax) {
+          const regen = (CFG.player.energyRegen + this.stats.energyRegenAdd) * this.stats.energyRegenMul * (game.biomeMod.energyRegenMul || 1);
+          this.energy = Math.min(this.energyMax, this.energy + regen * dt);
+        }
+
+        // Low-power warning.
+        if (this.energy / this.energyMax < 0.16 && !this._lowWarn) { this._lowWarn = true; RE.Audio.sfx('lowpower'); }
+        else if (this.energy / this.energyMax > 0.3) this._lowWarn = false;
+
+        // Movement (move-toward).
         if (this.dashing) {
           this.dashTimer -= dt;
-          this.vx = this.dashDirX * CFG.player.dashSpeed * this.stats.dashDistMul;
-          this.vy = this.dashDirY * CFG.player.dashSpeed * this.stats.dashDistMul;
-          if (this.dashTimer <= 0) this.dashing = false;
+          this.vx = this.dashDirX * this.dashSpeed;
+          this.vy = this.dashDirY * this.dashSpeed;
+          if (this.dashTimer <= 0) this._endDash(game);
           if (Math.random() < 0.6) Particles.emit({ x: this.x, y: this.y, vx: 0, vy: 0, life: 0.22, size: 5, color: '#6cf', drag: 3, kind: 'dot' });
         } else {
-          const maxSpd = CFG.player.maxSpeed * this.stats.speedMul;
-          if (mv.len > 0.05) {
-            this.moveAngle = Math.atan2(mv.y, mv.x);
-            this.vx += mv.x * CFG.player.accel * dt;
-            this.vy += mv.y * CFG.player.accel * dt;
-            this.walkCycle += dt * 12;
-          } else {
-            const f = Math.exp(-CFG.player.friction * dt);
-            this.vx *= f; this.vy *= f;
-          }
-          // clamp speed
-          const sp = Math.hypot(this.vx, this.vy);
-          if (sp > maxSpd) { this.vx = this.vx / sp * maxSpd; this.vy = this.vy / sp * maxSpd; }
-          this.thruster = M.clamp(sp / maxSpd, 0, 1);
+          const mv = RE.Input.moveVector();
+          const speedMul = this.stats.speedMul * (game.biomeMod.speedMul || 1);
+          const maxSpd = CFG.player.maxSpeed * speedMul;
+          const tvx = mv.x * maxSpd, tvy = mv.y * maxSpd;
+          const rate = (mv.len > 0.05 ? CFG.player.accel : CFG.player.decel) * dt;
+          this.vx = M.approach(this.vx, tvx, rate);
+          this.vy = M.approach(this.vy, tvy, rate);
+          if (mv.len > 0.05) { this.moveAngle = Math.atan2(mv.y, mv.x); this.walkCycle += dt * 12; }
+          // biome push (currents)
+          if (game.biomeMod.push) { this.vx += game.biomeMod.push.x * dt; this.vy += game.biomeMod.push.y * dt; }
         }
 
-        // Integrate + collide.
+        // Integrate + collide (per-axis for wall-slide).
+        const preVx = this.vx, preVy = this.vy;
         this.x += this.vx * dt;
         this.y += this.vy * dt;
         const res = game.map.collideCircle(this.x, this.y, this.radius);
         this.x = res.x; this.y = res.y;
-        if (res.hitX) this.vx *= 0.4;
-        if (res.hitY) this.vy *= 0.4;
+        if (res.hitX) this.vx = 0;
+        if (res.hitY) this.vy = 0;
+        // wall-slam trauma post-dash
+        if ((res.hitX || res.hitY) && Math.hypot(preVx, preVy) > 500) game.camera.addTrauma(0.2);
 
-        // Enemy projectile collisions handled in game loop.
+        this.speed = Math.hypot(this.vx, this.vy);
+        this.thruster = M.clamp(this.speed / CFG.player.maxSpeed, 0, 1);
+
+        // shots light the way
       },
 
       render(ctx, cam) {
@@ -272,29 +407,39 @@
         ctx.save();
         ctx.translate(sx, sy);
 
-        // Passive light halo (subtle)
+        // Passive light halo.
         ctx.globalCompositeOperation = 'lighter';
-        const lr = this.lightRadius;
+        const lr = this.lightOuter;
         const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, lr);
-        halo.addColorStop(0, 'rgba(120,210,255,0.12)');
+        halo.addColorStop(0, 'rgba(120,210,255,0.14)');
         halo.addColorStop(0.5, 'rgba(80,160,255,0.05)');
         halo.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = halo;
         ctx.beginPath(); ctx.arc(0, 0, lr, 0, Math.PI * 2); ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
 
-        // Barrier shield ring.
-        if (this.stats.barrier && this.barrierCharge > 0) {
-          ctx.strokeStyle = 'rgba(120,200,255,0.5)';
-          ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2); ctx.stroke();
+        // Deflector shield arc.
+        if (this.shieldActive) {
+          ctx.strokeStyle = 'rgba(120,200,255,0.6)';
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.arc(0, 0, this.radius + 8, this.shieldAngle - 1.22, this.shieldAngle + 1.22);
+          ctx.stroke();
         }
 
-        // Thruster flame opposite move direction.
+        // charge indicator (rail)
+        const w = this.weaponDef();
+        if (w.charge && this.charging) {
+          const frac = M.clamp(this.weaponCharge / w.charge, 0, 1);
+          ctx.strokeStyle = frac >= 1 ? '#b6f' : 'rgba(180,120,255,0.5)';
+          ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(0, 0, this.radius + 12, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
+        }
+
+        // Thruster flame.
         if (this.thruster > 0.05 && !this.dashing) {
           const ta = this.moveAngle + Math.PI;
-          ctx.save();
-          ctx.rotate(ta);
+          ctx.save(); ctx.rotate(ta);
           ctx.globalCompositeOperation = 'lighter';
           ctx.fillStyle = 'rgba(120,210,255,' + (0.4 * this.thruster) + ')';
           ctx.beginPath();
@@ -307,38 +452,46 @@
           ctx.globalCompositeOperation = 'source-over';
         }
 
-        // Body (chassis) — rotates to face aim.
+        // Chassis.
         ctx.rotate(this.facing);
         const flash = this.hitFlash > 0;
-        const iframeBlink = this.iframes > 0 && (Math.floor(this.iframes * 30) % 2 === 0);
+        const iframeBlink = this.iframes > 0 && !this.dashing && (Math.floor(this.iframes * 30) % 2 === 0);
         ctx.globalAlpha = iframeBlink ? 0.5 : 1;
-
-        // hull
         ctx.fillStyle = flash ? '#fff' : '#2b5f7a';
-        ctx.strokeStyle = '#7fe6ff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-        ctx.fill(); ctx.stroke();
-
-        // directional core / cannon
+        ctx.strokeStyle = '#7fe6ff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.fillStyle = flash ? '#fff' : '#0e2a38';
         ctx.fillRect(0, -3, this.radius + 8, 6);
         ctx.strokeRect(0, -3, this.radius + 8, 6);
-
-        // eye
         ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = flash ? '#fff' : '#8ff';
         ctx.beginPath(); ctx.arc(this.radius * 0.2, 0, 4, 0, Math.PI * 2); ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
-
         ctx.globalAlpha = 1;
         ctx.restore();
+
+        // Energy ring around player (peripheral read).
+        this._energyRing(ctx, sx, sy);
       },
+
+      _energyRing(ctx, sx, sy) {
+        const frac = this.energy / this.energyMax;
+        const r = this.radius + 6;
+        ctx.save();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(20,40,60,0.5)';
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+        const col = frac < 0.18 ? '#ff5a6e' : (this.energyFlash > 0 ? '#ff5a6e' : '#2db6ff');
+        ctx.strokeStyle = col;
+        ctx.beginPath(); ctx.arc(sx, sy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      },
+      energyFlash: 0,
     };
     p.recompute();
     return p;
   }
 
   RE.makePlayer = makePlayer;
+  RE.DEFAULT_WEAPON = DEFAULT_WEAPON;
 })(window.RE = window.RE || {});

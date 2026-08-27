@@ -1,43 +1,46 @@
 /* RoboExplore — game core: state machine, world building, simulation glue,
- * rendering with echo-lit tiles, rewards, and meta-progression.
+ * echo-lit rendering, rewards, meta-progression, biomes, hazards, and endings.
  */
 (function (RE) {
   'use strict';
   const M = RE.M, CFG = RE.CFG;
 
-  // Meta-progression upgrade tree (spend core-shards, persistent).
+  // Meta-progression tree ("The Dry Dock"), spend core-shards. Applied to
+  // p.stats at run start BEFORE modules equip, so meta + modules compose.
   RE.META_UPGRADES = [
-    { id: 'hull', name: 'Reinforced Hull', desc: '+12 max hull per level.', cost: 3, costPer: 2, max: 5 },
-    { id: 'energy', name: 'Power Cells', desc: '+12 max energy per level.', cost: 3, costPer: 2, max: 5 },
-    { id: 'regen', name: 'Fast Recharge', desc: '+12% energy regen per level.', cost: 4, costPer: 2, max: 4 },
-    { id: 'salvage', name: 'Refinery', desc: '+20% salvage gained per level.', cost: 4, costPer: 3, max: 3 },
-    { id: 'echo', name: 'Deep Echo', desc: '+12% echo range per level.', cost: 3, costPer: 2, max: 3 },
-    { id: 'start_capacitor', name: 'Field Kit: Capacitor', desc: 'Start each run with a Capacitor Bank.', cost: 8, max: 1 },
-    { id: 'start_overclock', name: 'Field Kit: Servos', desc: 'Start each run with Overclock Servos.', cost: 8, max: 1 },
-    { id: 'revive', name: 'Backup Core', desc: 'Revive once per run at 40% hull.', cost: 14, max: 1 },
+    { id: 'hull1', name: 'Reinforced Hull I', desc: '+15 max hull.', cost: 6, apply: s => s.hullMaxAdd += 15 },
+    { id: 'hull2', name: 'Reinforced Hull II', desc: '+20 max hull.', cost: 14, req: 'hull1', apply: s => s.hullMaxAdd += 20 },
+    { id: 'cap1', name: 'Capacitor I', desc: '+15 max energy.', cost: 6, apply: s => s.energyMaxAdd += 15 },
+    { id: 'cap2', name: 'Capacitor II', desc: '+20 max energy.', cost: 14, req: 'cap1', apply: s => s.energyMaxAdd += 20 },
+    { id: 'regen', name: 'Recirculator', desc: '+20% energy regen.', cost: 12, apply: s => s.energyRegenMul *= 1.2 },
+    { id: 'servo', name: 'Servo Tune', desc: '+6% move speed.', cost: 12, apply: s => s.speedMul *= 1.06 },
+    { id: 'echoeff', name: 'Echo Efficiency', desc: 'Echo costs 2 less energy.', cost: 16, apply: s => s.echoCostAdd -= 2 },
+    { id: 'dasheff', name: 'Dash Efficiency', desc: 'Dash costs 3 less energy.', cost: 16, apply: s => s.dashCostAdd -= 3 },
+    { id: 'salvage', name: 'Refinery', desc: '+15% salvage & shard yield.', cost: 10 },
+    { id: 'magnet', name: 'Field Magnet', desc: 'Start with a +90 salvage magnet.', cost: 8, apply: s => s.magnetRange = Math.max(s.magnetRange, 90) },
+    { id: 'draft', name: 'Draft Kit', desc: 'Start each run with a chosen module.', cost: 18 },
+    { id: 'revive', name: 'Emergency Reboot', desc: 'Revive once per run at 30 hull.', cost: 30 },
   ];
 
   const Game = {
     canvas: null, ctx: null,
-    state: 'title',      // title | playing | paused | reward | dead | meta
-    prevState: 'title',
+    state: 'title', prevState: 'title',
     time: 0, fps: 60, _frames: 0, _fpsT: 0,
     hitStopT: 0,
     _mouseMoved: false, _lastMouse: { x: -1, y: -1 },
 
-    // run state
     seed: 0, rng: null,
-    sector: 1, biome: null, biomeIndex: -1,
+    sector: 1, biome: null, biomeMod: {}, salvageMul: 1,
     salvage: 0, runShards: 0, score: 0, kills: 0,
-    player: null, map: null,
-    enemies: [], projectiles: [], pickups: [], boss: null,
+    player: null, map: null, gen: null,
+    enemies: [], projectiles: [], pickups: [], hazards: [], boss: null,
     camera: RE.Camera,
     won: false,
     runStats: { sector: 0, kills: 0, score: 0, shards: 0 },
-    rewardChoices: null, rewardTitle: '', _rewardResumeState: 'playing',
-    revivesLeft: 0,
-    _descending: false,
-    logsThisRun: {},
+    rewardChoices: null, rewardTitle: '',
+    revivesLeft: 0, _descending: false,
+    lastPulse: null,
+    codexReturn: 'title',
 
     init(canvas) {
       this.canvas = canvas;
@@ -59,13 +62,10 @@
       this.rng = RE.RNG.make(this.seed);
       this.sector = 1;
       this.salvage = 0; this.runShards = 0; this.score = 0; this.kills = 0;
-      this.biomeIndex = -1; this.won = false; this._descending = false;
-      this.logsThisRun = {};
-      // build player with meta applied
+      this.biome = null; this.won = false; this._descending = false;
       this.player = RE.makePlayer(0, 0);
-      this.player.equip('blaster');
       this._applyMeta(this.player);
-      this.enemies = []; this.projectiles = []; this.pickups = []; this.boss = null;
+      this.enemies = []; this.projectiles = []; this.pickups = []; this.hazards = []; this.boss = null;
       RE.HUD.reset();
       RE.Particles.clear();
       this.loadSector(1);
@@ -74,18 +74,16 @@
 
     _applyMeta(p) {
       const u = RE.Save.data.unlocks;
-      const lvl = (id) => (typeof u[id] === 'number' ? u[id] : (u[id] ? 1 : 0));
-      if (lvl('hull')) p.stats.hullMaxAdd += 12 * lvl('hull');
-      if (lvl('energy')) p.stats.energyMaxAdd += 12 * lvl('energy');
-      if (lvl('regen')) p.stats.energyRegenMul *= (1 + 0.12 * lvl('regen'));
-      if (lvl('echo')) p.stats.echoRangeMul *= (1 + 0.12 * lvl('echo'));
-      this.salvageMul = 1 + 0.2 * lvl('salvage');
+      for (const up of RE.META_UPGRADES) {
+        if (u[up.id] && up.apply) up.apply(p.stats);
+      }
+      this.salvageMul = u.salvage ? 1.15 : 1;
       p.recompute();
       p.hull = p.hullMax; p.energy = p.energyMax;
-      if (u.start_capacitor) p.equip('capacitor');
-      if (u.start_overclock) p.equip('overclock');
       this.revivesLeft = u.revive ? 1 : 0;
-      p.hull = p.hullMax; p.energy = p.energyMax;
+      // Draft handled at title (choose module) — for alpha, grant Kinetic Servos.
+      if (u.draft) p.equip('m-servos');
+      p.recompute(); p.hull = p.hullMax; p.energy = p.energyMax;
     },
 
     loadSector(n) {
@@ -94,117 +92,107 @@
       const biome = RE.biomeForSector(n);
       const biomeChanged = biome !== this.biome;
       this.biome = biome;
-      // Map size scales gently with depth.
-      const size = Math.min(96, 58 + n * 2);
+      this.biomeMod = biome.mod || {};
+      const isThreshold = (n % CFG.biomeSize === 0);
+
+      const size = Math.min(96, 56 + n * 2);
       const srng = this.rng.fork('sector' + n);
-      const gen = RE.Gen.generate({
-        rng: srng, w: size, h: size,
-        fill: biome.gen.fill, steps: biome.gen.steps, openness: biome.gen.openness,
-      });
+      const gen = RE.Gen.generate({ rng: srng, w: size, h: size, fill: biome.gen.fill, steps: biome.gen.steps, openness: biome.gen.openness });
       this.gen = gen;
       this.map = RE.Tilemap.make(gen, CFG.tile);
       RE.Echo.reset(this.map, CFG);
+      // apply echo hold bonus from modules
+      RE.Echo.hold = CFG.player.echoTileHold + (this.player.stats.echoHoldAdd || 0);
 
-      // Place player at spawn.
       const sp = this.map.centerOfTile(gen.spawn.x, gen.spawn.y);
-      this.player.x = sp.x; this.player.y = sp.y;
-      this.player.vx = 0; this.player.vy = 0;
-      // small progression refill
+      this.player.x = sp.x; this.player.y = sp.y; this.player.vx = 0; this.player.vy = 0;
       this.player.energy = this.player.energyMax;
-      if (n > 1) this.player.heal(this.player.hullMax * 0.08);
+      this.player.stats.coreVentUsed = false;
+      if (n > 1) this.player.heal(this.player.hullMax * 0.06);
 
-      // clear transient
-      this.enemies.length = 0;
-      this.projectiles.length = 0;
-      this.pickups.length = 0;
+      this.enemies.length = 0; this.projectiles.length = 0; this.pickups.length = 0; this.hazards.length = 0;
       this.boss = null;
+      this.lastPulse = null;
       RE.Particles.clear();
 
-      // Exit.
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
       this.pickups.push(RE.makePickup('exit', ex.x, ex.y));
 
-      this._populateSector(n, biome, srng);
+      this._populateSector(n, biome, srng, isThreshold);
 
-      // Opening echo so the player isn't fully blind.
       RE.Echo.pulse(sp.x, sp.y, { maxR: 260 });
-
       this.camera.snapTo(sp.x, sp.y);
       RE.HUD.showBanner('SECTOR ' + n, biome.name, 2.4);
-      if (this.sector % CFG.biomeSize === 1 || biomeChanged) HUDToastVibe(biome);
-      if (biomeChanged) { RE.Audio.startMusic(biome.music); }
+      if (biomeChanged) { RE.Audio.startMusic(biome.music); if (biome.vibe) RE.HUD.toast(biome.vibe, { life: 4.2, color: 'rgba(180,210,235,0.8)' }); }
       RE.Audio.sfx('sector');
-
-      function HUDToastVibe(b) { if (b.vibe) RE.HUD.toast(b.vibe, { life: 4, color: 'rgba(180,210,235,0.8)' }); }
     },
 
-    _populateSector(n, biome, rng) {
+    _populateSector(n, biome, rng, isThreshold) {
       const map = this.map, gen = this.gen;
       const cell = (idx) => { const c = gen.cellXY(idx); return map.centerOfTile(c.x, c.y); };
-      const minSpawnDist = 8;
+      const eliteChance = n < 4 ? 0 : Math.min(0.25, (n - 3) * 0.03);
 
-      // Enemies scale with depth.
-      const count = Math.round(4 + n * 1.4);
+      // Guardian on threshold sectors.
+      if (isThreshold) {
+        const gid = RE.GUARDIANS[biome.id];
+        const pos = cell(gen.exitIdx);
+        // place guardian near the exit
+        const g = RE.makeEnemy(gid, pos.x, pos.y, n + 3, false);
+        g.maxHp *= 3.2; g.hp = g.maxHp; g.isBoss = true; g.name = RE.ENEMIES[gid].name;
+        g.dmgMul *= 1.1;
+        this.enemies.push(g);
+        this.boss = g;
+      }
+
+      const count = Math.min(22, Math.round(5 + n * 0.85));
       const pool = biome.enemies;
       for (let i = 0; i < count; i++) {
         const idx = gen.pickFeatureCell(10, 3);
         const pos = cell(idx);
-        // weight toward earlier enemies in shallow sectors
         const id = rng.pick(pool);
-        this.enemies.push(RE.makeEnemy(id, pos.x, pos.y, n));
+        const elite = rng.next() < eliteChance;
+        this.enemies.push(RE.makeEnemy(id, pos.x, pos.y, n, elite));
       }
 
-      // Energy nodes.
-      const energyN = 2 + (rng.next() < 0.5 ? 1 : 0);
-      for (let i = 0; i < energyN; i++) {
-        const pos = cell(gen.pickFeatureCell(6, 5));
-        this.pickups.push(RE.makePickup('energy', pos.x, pos.y, { value: 45 }));
-      }
-      // Salvage scatter.
-      const salvageN = 5 + Math.floor(n * 0.6);
-      for (let i = 0; i < salvageN; i++) {
-        const pos = cell(gen.pickFeatureCell(4, 2));
-        this.pickups.push(RE.makePickup('salvage', pos.x, pos.y, { value: rng.int(4, 9) }));
-      }
-      // Hull repair (sometimes).
-      if (rng.next() < 0.7) {
-        const pos = cell(gen.pickFeatureCell(6, 5));
-        this.pickups.push(RE.makePickup('hull', pos.x, pos.y, { value: 30 }));
-      }
-      // Module cache (most sectors).
-      if (rng.next() < 0.85) {
-        const pos = cell(gen.pickFeatureCell(9, 6));
-        this.pickups.push(RE.makePickup('module', pos.x, pos.y));
-      }
-      // Core-shard (rarely, more likely deeper).
-      if (rng.next() < 0.25 + n * 0.03) {
-        const pos = cell(gen.pickFeatureCell(10, 6));
-        this.pickups.push(RE.makePickup('shard', pos.x, pos.y, { value: 1 }));
-      }
+      // Energy node (finite dock) — guaranteed.
+      { const pos = cell(gen.pickFeatureCell(8, 6)); const nd = RE.makePickup('node', pos.x, pos.y, { charge: CFG.node.charge }); nd.maxCharge = CFG.node.charge; this.pickups.push(nd); }
+      // small energy orbs
+      const energyN = 1 + (rng.next() < 0.5 ? 1 : 0);
+      for (let i = 0; i < energyN; i++) { const pos = cell(gen.pickFeatureCell(5, 4)); this.pickups.push(RE.makePickup('energy', pos.x, pos.y, { value: 30 })); }
+      // salvage
+      const salvageN = 4 + Math.floor(n * 0.5);
+      for (let i = 0; i < salvageN; i++) { const pos = cell(gen.pickFeatureCell(4, 2)); this.pickups.push(RE.makePickup('salvage', pos.x, pos.y, { value: rng.int(4, 9) })); }
+      // hull repair
+      if (rng.next() < 0.65) { const pos = cell(gen.pickFeatureCell(6, 5)); this.pickups.push(RE.makePickup('hull', pos.x, pos.y, { value: 30 })); }
+      // module cache
+      if (isThreshold || rng.next() < 0.8) { const pos = cell(gen.pickFeatureCell(9, 6)); this.pickups.push(RE.makePickup('module', pos.x, pos.y)); }
+      // core-shard (deeper = likelier; guaranteed on threshold)
+      if (isThreshold || rng.next() < 0.22 + n * 0.02) { const pos = cell(gen.pickFeatureCell(10, 6)); this.pickups.push(RE.makePickup('shard', pos.x, pos.y, { value: 1 })); }
+      // log fragment
+      const logs = RE.logsForBiome(biome.id).filter(l => !RE.Save.data.logsFound[l.id]);
+      if (logs.length && rng.next() < 0.6) { const pos = cell(gen.pickFeatureCell(7, 5)); const log = rng.pick(logs); this.pickups.push(RE.makePickup('log', pos.x, pos.y, { data: log })); }
     },
 
     nextSector() {
       if (this._descending) return;
+      // gate: on a threshold sector, the guardian must fall first
+      if (this.boss && this.boss.alive) { RE.HUD.toast('the guardian blocks the shaft', { color: '#ff9aa8', life: 1.6 }); return; }
       this._descending = true;
       if (this.sector >= CFG.sectorsPerRun) { this.win(); return; }
-      RE.HUD.showBanner('DESCENDING', '', 1.2);
-      // brief delay via banner; load next immediately for simplicity
+      RE.HUD.showBanner('DESCENDING', '', 1.1);
       this.loadSector(this.sector + 1);
     },
 
-    win() {
-      this.won = true;
-      this._endRun();
-    },
+    win() { this.won = true; this._endRun(); },
 
     onPlayerDeath() {
       if (this.revivesLeft > 0) {
         this.revivesLeft--;
         this.player.alive = true;
-        this.player.hull = this.player.hullMax * 0.4;
+        this.player.hull = this.player.hullMax * 0.3;
         this.player.energy = this.player.energyMax;
         this.player.iframes = 2;
-        RE.HUD.showBanner('BACKUP CORE', 'system rebooted', 2);
+        RE.HUD.showBanner('EMERGENCY REBOOT', 'systems restored', 2);
         RE.Audio.sfx('shield');
         RE.Particles.burst(this.player.x, this.player.y, 30, { speed: 260, color: '#7affd1', life: 0.8, size: 3, kind: 'spark' });
         return;
@@ -213,10 +201,15 @@
     },
 
     _endRun() {
-      this.won = this.won || false;
-      // convert leftover into a couple shards for progress
       const bonusShards = Math.floor(this.salvage / 120);
       this.runShards += bonusShards;
+      // first-reach milestone shards
+      const milestones = { 3: 2, 6: 3, 9: 4, 12: 5, 15: 8 };
+      let milestoneBonus = 0;
+      for (const k of Object.keys(milestones)) {
+        if (this.sector >= +k && !RE.Save.data.milestones[k]) { RE.Save.data.milestones[k] = true; milestoneBonus += milestones[k]; }
+      }
+      this.runShards += milestoneBonus;
       this.score += this.sector * 100 + this.kills * 10;
       this.runStats = { sector: this.sector, kills: this.kills, score: this.score, shards: this.runShards };
       RE.Save.addShards(this.runShards);
@@ -225,115 +218,132 @@
       this.state = 'dead';
     },
 
-    // ---- Spawning helpers ---------------------------------------------
+    // ---- Pulse / pings / hazards --------------------------------------
+    onPulse(x, y, r) {
+      this.lastPulse = { x, y, t: this.time };
+      // "The Hollow listens": nearby enemies orient/aggro.
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        if (M.dist(x, y, e.x, e.y) < r && e.def.wakeOnPing !== false) e.awake = true;
+      }
+    },
+    spawnEnemyPing(x, y) { RE.Echo.spawnPing(x, y, '#ff5a6e'); },
+
+    flashEnergy() { if (this.player) this.player.energyFlash = 0.3; },
+
+    dischargePulse(x, y, dmg, radius, stun) {
+      radius = radius || 130;
+      RE.Particles.burst(x, y, 22, { speed: 300, color: '#8ff', life: 0.4, size: 3, kind: 'spark' });
+      RE.Echo.pulse(x, y, { maxR: radius, speed: 900, strength: 0.9 });
+      this.onPulse(x, y, radius);
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        const d = M.dist(x, y, e.x, e.y);
+        if (d < radius) {
+          const a = Math.atan2(e.y - y, e.x - x);
+          e.takeDamage(dmg * (1 - d / radius * 0.5), Math.cos(a) * 200, Math.sin(a) * 200, this);
+          if (stun) { e.state = 'flinch'; e.stateT = Math.max(0, 0.15 - stun); }
+        }
+      }
+    },
+
+    spawnHazard(x, y, r, dmg, life, color) {
+      this.hazards.push({ x, y, r, dmg, life, maxLife: life, color, tickCd: 0 });
+    },
+
+    hitStop(t) { this.hitStopT = Math.max(this.hitStopT, Math.min(t, CFG.hitStopMax)); },
+
+    // ---- Spawning ------------------------------------------------------
     spawnProjectile(opts) { this.projectiles.push(RE.makeProjectile(opts)); },
     spawnEnemyProjectile(x, y, vx, vy, dmg, color) {
-      this.projectiles.push(RE.makeProjectile({ x, y, vx, vy, damage: dmg, color, friendly: false, r: 5, life: 3 }));
+      const pr = RE.makeProjectile({ x, y, vx, vy, damage: dmg, color, friendly: false, r: 5, life: 3 });
+      this.projectiles.push(pr);
+      return pr;
     },
     damagePlayer(amt, source) {
       if (!this.player || !this.player.alive) return false;
       return this.player.damage(amt, source, this);
     },
-    dischargePulse(x, y, dmg) {
-      RE.Particles.burst(x, y, 22, { speed: 300, color: '#8ff', life: 0.4, size: 3, kind: 'spark' });
-      RE.Echo.pulse(x, y, { maxR: 130, speed: 900 });
-      for (const e of this.enemies) {
-        if (!e.alive) continue;
-        if (M.dist(x, y, e.x, e.y) < 120) {
-          const a = Math.atan2(e.y - y, e.x - x);
-          e.takeDamage(dmg, Math.cos(a) * 200, Math.sin(a) * 200, this);
-        }
-      }
-    },
-    hitStop(t) { this.hitStopT = Math.max(this.hitStopT, Math.min(t, CFG.hitStopMax)); },
 
     onEnemyKilled(e) {
       this.kills++;
-      this.score += (e.def.danger || 1) * 5;
-      // drop salvage
+      this.score += (e.def.danger || 1) * 5 * (e.elite ? 2 : 1);
       const [lo, hi] = e.def.salvage || [1, 3];
-      const n = this.rng ? this.rng.int(lo, hi) : lo;
+      let n = this.rng ? this.rng.int(lo, hi) : lo;
+      if (e.elite) n = Math.round(n * 1.5);
       for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2, d = Math.random() * 14;
-        this.pickups.push(RE.makePickup('salvage', e.x + Math.cos(a) * d, e.y + Math.sin(a) * d, { value: 3 }));
+        const a = Math.random() * Math.PI * 2, dd = Math.random() * 14;
+        this.pickups.push(RE.makePickup('salvage', e.x + Math.cos(a) * dd, e.y + Math.sin(a) * dd, { value: 3 }));
       }
-      if (this.boss === e) { this.boss = null; }
+      if (this.boss === e) {
+        this.boss = null;
+        RE.HUD.showBanner('GUARDIAN FELLED', 'the shaft opens', 2.2);
+        RE.Audio.sfx('sector');
+        this.pickups.push(RE.makePickup('module', e.x, e.y));
+        this.pickups.push(RE.makePickup('shard', e.x + 30, e.y, { value: 1 }));
+      }
     },
 
     onCollect(pickup) {
       const p = this.player;
       switch (pickup.kind) {
-        case 'salvage': {
-          const v = Math.round(pickup.value * (this.salvageMul || 1));
-          this.salvage += v; this.score += v; break;
-        }
-        case 'energy': p.addEnergy(pickup.value); RE.HUD.toast('+' + pickup.value + ' energy', { color: '#4ad6ff', life: 1.4 }); break;
+        case 'salvage': { const v = Math.round(pickup.value * (this.salvageMul || 1)); this.salvage += v; this.score += v; break; }
+        case 'energy': p.addEnergy(pickup.value); break;
         case 'hull': p.heal(pickup.value); RE.HUD.toast('+' + pickup.value + ' hull', { color: '#5affa0', life: 1.4 }); break;
-        case 'shard': this.runShards += pickup.value; this.score += pickup.value * 20; RE.HUD.toast('✦ core-shard recovered', { color: '#c0a0ff', life: 2.2, big: true }); break;
+        case 'shard': { const b = Math.round(pickup.value * (this.salvageMul || 1)); this.runShards += pickup.value; this.score += pickup.value * 20; RE.HUD.toast('✦ core-shard recovered', { color: '#c0a0ff', life: 2.2, big: true }); break; }
         case 'module': this.presentReward(this._rollModules(3), 'MODULE CACHE'); break;
-        case 'log': break;
+        case 'log': this._collectLog(pickup.data); break;
         default: break;
       }
     },
 
-    _rollModules(count) {
-      const all = Object.values(RE.MODULES).filter(m => !m._noReward);
-      const rng = this.rng || RE.RNG.make(1);
-      const weights = { common: 5, uncommon: 3, rare: 1.4, legendary: 0.6 };
-      const chosen = [];
-      const bag = all.slice();
-      for (let i = 0; i < count && bag.length; i++) {
-        const pickIdx = weightedIndex(bag, m => weights[m.rarity] || 1);
-        chosen.push(bag[pickIdx]);
-        bag.splice(pickIdx, 1);
-      }
-      return chosen;
-      function weightedIndex(arr, wf) {
-        let total = 0; for (const a of arr) total += wf(a);
-        let r = rng.next() * total;
-        for (let i = 0; i < arr.length; i++) { r -= wf(arr[i]); if (r <= 0) return i; }
-        return arr.length - 1;
-      }
+    _collectLog(log) {
+      if (!log) return;
+      const isNew = !RE.Save.data.logsFound[log.id];
+      RE.Save.foundLog(log.id);
+      if (isNew) { this.runShards += 1; this.score += 20; }
+      RE.HUD.toast('LOG RECOVERED — ' + log.title, { color: '#9fe6ff', life: 3, big: true });
+      RE.HUD.toast('“' + log.text + '”', { color: 'rgba(180,210,235,0.85)', life: 5 });
     },
 
-    presentReward(choices, title) {
-      this.rewardChoices = choices;
-      this.rewardTitle = title || 'SALVAGE RECOVERED';
-      this._rewardResumeState = 'playing';
-      this.state = 'reward';
-      RE.Menus.focus = 0;
+    _rollModules(count) {
+      const all = Object.values(RE.MODULES);
+      const rng = this.rng || RE.RNG.make(1);
+      const rareBoost = RE.Save.data.unlocks.raredrops ? 1.5 : 1;
+      const weights = { common: 5, uncommon: 3, rare: 1.4 * rareBoost, legendary: 0.6 * rareBoost };
+      const chosen = [], bag = all.slice();
+      for (let i = 0; i < count && bag.length; i++) {
+        let total = 0; for (const m of bag) total += weights[m.rarity] || 1;
+        let r = rng.next() * total, idx = bag.length - 1;
+        for (let j = 0; j < bag.length; j++) { r -= weights[bag[j].rarity] || 1; if (r <= 0) { idx = j; break; } }
+        chosen.push(bag[idx]); bag.splice(idx, 1);
+      }
+      return chosen;
     },
+
+    presentReward(choices, title) { this.rewardChoices = choices; this.rewardTitle = title || 'SALVAGE RECOVERED'; this.state = 'reward'; RE.Menus.focus = 0; },
     chooseReward(def) {
       const prev = this.player.modules[def.slot];
       this.player.equip(def.id);
       RE.HUD.toast('EQUIPPED: ' + def.name, { color: '#ff8adf', life: 2.4, big: true });
       if (prev && prev !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[prev].name, { color: 'rgba(200,200,200,0.7)', life: 2 });
-      this.rewardChoices = null;
-      this.state = 'playing';
+      this.rewardChoices = null; this.state = 'playing';
     },
-    skipReward() {
-      this.salvage += 15; this.score += 15;
-      RE.HUD.toast('+15 salvage', { color: '#ffe27a', life: 1.6 });
-      this.rewardChoices = null;
-      this.state = 'playing';
-    },
+    skipReward() { this.salvage += 15; this.score += 15; RE.HUD.toast('+15 salvage', { color: '#ffe27a', life: 1.6 }); this.rewardChoices = null; this.state = 'playing'; },
 
-    // ---- Meta screen ---------------------------------------------------
+    // ---- Meta / codex --------------------------------------------------
     openMeta() { this.prevState = this.state; this.state = 'meta'; RE.Menus.focus = 0; },
     closeMeta() { this.state = (this.prevState === 'meta' ? 'title' : this.prevState) || 'title'; RE.Menus.focus = 0; },
     buyMeta(u, cost) {
       if (!RE.Save.spendShards(cost)) return;
-      const cur = RE.Save.data.unlocks[u.id];
-      const lvl = (typeof cur === 'number' ? cur : (cur ? 1 : 0)) + 1;
-      RE.Save.data.unlocks[u.id] = u.max ? lvl : true;
-      RE.Save.save();
-      RE.Audio.sfx('pickup_big');
+      RE.Save.data.unlocks[u.id] = true; RE.Save.save(); RE.Audio.sfx('pickup_big');
     },
+    openCodex(ret) { this.codexReturn = ret || this.state; this.prevState = this.state; this.state = 'codex'; RE.Menus.focus = 0; },
+    closeCodex() { this.state = this.codexReturn || 'title'; RE.Menus.focus = 0; },
 
-    // ---- Pause / title -------------------------------------------------
     togglePause() {
       if (this.state === 'playing') { this.state = 'paused'; RE.Menus.focus = 0; }
-      else if (this.state === 'paused') { this.state = 'playing'; }
+      else if (this.state === 'paused') this.state = 'playing';
     },
     abandonRun() { this._endRun(); this.state = 'title'; RE.Audio.stopMusic(); },
     gotoTitle() { this.state = 'title'; RE.Menus.focus = 0; RE.Audio.stopMusic(); },
@@ -342,68 +352,97 @@
     // ---- Update --------------------------------------------------------
     update(dt) {
       this.time += dt;
-      // fps
       this._frames++; this._fpsT += dt;
       if (this._fpsT >= 0.5) { this.fps = this._frames / this._fpsT; this._frames = 0; this._fpsT = 0; }
 
-      // resolve view mouse & movement flag
       RE.Input.setViewMouse(RE.Input.mouse.sx * CFG.viewW, RE.Input.mouse.sy * CFG.viewH);
       this._mouseMoved = (RE.Input.mouse.x !== this._lastMouse.x || RE.Input.mouse.y !== this._lastMouse.y);
       this._lastMouse.x = RE.Input.mouse.x; this._lastMouse.y = RE.Input.mouse.y;
 
-      // global mute toggle handled in menus; pause key
-      if (this.state === 'playing' || this.state === 'paused') {
-        if (RE.Input.pressed('pause')) this.togglePause();
-      } else if (this.state === 'reward') {
-        // allow escape to skip
-      } else if (this.state === 'meta') {
-        if (RE.Input.keyPressed('Escape')) this.closeMeta();
-      }
+      if (this.state === 'playing' || this.state === 'paused') { if (RE.Input.pressed('pause')) this.togglePause(); }
+      else if (this.state === 'meta') { if (RE.Input.keyPressed('Escape')) this.closeMeta(); }
+      else if (this.state === 'codex') { if (RE.Input.keyPressed('Escape')) this.closeCodex(); }
 
       if (this.state === 'playing') this._updatePlaying(dt);
-      else if (this.state === 'reward' || this.state === 'paused') { /* frozen */ }
-
-      RE.HUD.update(this.state === 'playing' ? dt : dt * 0.0 + dt); // toasts still fade
+      RE.HUD.update(dt);
     },
 
     _updatePlaying(dt) {
-      // hit-stop freezes the simulation briefly for impact.
       if (this.hitStopT > 0) { this.hitStopT -= dt; if (this.hitStopT > 0) { RE.Particles.update(dt * 0.15); return; } }
-
       const p = this.player;
-      RE.Echo.update(dt);
+      RE.Echo.update(dt, p);
       p.update(dt, this);
 
-      // enemies
       for (const e of this.enemies) if (e.alive) e.update(dt, this);
-
-      // projectiles
       for (const pr of this.projectiles) if (pr.alive) pr.update(dt, this);
       this._projectileCollisions();
-
-      // pickups
       for (const pk of this.pickups) if (pk.alive) pk.update(dt, this);
-
-      // exit check
+      this._nodeDocking(dt);
+      this._pickupPings();
+      this._updateHazards(dt);
       this._checkExit();
 
       RE.Particles.update(dt);
-
-      // camera
-      this.camera.follow(p.x, p.y, p.vx, p.vy, CFG.camera, dt, { w: this.map.pxW, h: this.map.pxH });
+      // Keep the player centered (no hard bounds clamp) — the dark void beyond
+      // the map border is invisible, and centering reads far better.
+      this.camera.follow(p.x, p.y, p.vx, p.vy, CFG.camera, dt, null);
       this.camera.update(dt);
 
-      // prune dead
-      if (this._frames % 1 === 0) {
-        this.enemies = this.enemies.filter(e => e.alive);
-        this.projectiles = this.projectiles.filter(pr => pr.alive);
-        this.pickups = this.pickups.filter(pk => pk.alive);
-      }
+      this.enemies = this.enemies.filter(e => e.alive);
+      this.projectiles = this.projectiles.filter(pr => pr.alive);
+      this.pickups = this.pickups.filter(pk => pk.alive);
 
-      // music intensity from nearby awake enemies
       let threat = 0;
       for (const e of this.enemies) if (e.awake && M.dist(e.x, e.y, p.x, p.y) < 360) threat++;
       RE.Audio.setMusicIntensity(M.clamp(threat / 5, 0, 1));
+    },
+
+    _nodeDocking(dt) {
+      const p = this.player;
+      for (const nd of this.pickups) {
+        if (nd.kind !== 'node') { continue; }
+        const d = M.dist(nd.x, nd.y, p.x, p.y);
+        nd.docked = d < CFG.node.radius && nd.charge > 0;
+        if (nd.docked) {
+          const bonus = (p.stats.magnetBonus && !nd._touched) ? p.stats.magnetBonus : 0;
+          nd._touched = true;
+          const eNeed = p.energyMax - p.energy;
+          const hNeed = p.hullMax - p.hull;
+          let drain = 0;
+          if (eNeed > 0) { const add = Math.min(CFG.node.fill * dt + bonus, eNeed, nd.charge); p.addEnergy(add); drain += add; }
+          if (hNeed > 0 && nd.charge - drain > 0) { const add = Math.min(CFG.node.repair * dt, hNeed, nd.charge - drain); p.heal(add); drain += add; }
+          nd.charge -= drain;
+          if (Math.random() < 0.4) RE.Particles.emit({ x: nd.x + (Math.random() - 0.5) * 20, y: nd.y + (Math.random() - 0.5) * 20, vx: (p.x - nd.x) * 1.5, vy: (p.y - nd.y) * 1.5, life: 0.3, size: 2.5, color: '#b6ecff', drag: 3, kind: 'dot' });
+        }
+      }
+    },
+
+    _pickupPings() {
+      for (const pk of this.pickups) {
+        if (!pk.alive) continue;
+        const sweep = RE.Echo.pulseSweeping(pk.x, pk.y, pk.r);
+        if (sweep && pk._pingedBy !== sweep.id) {
+          pk._pingedBy = sweep.id;
+          let col = '#ffe27a';
+          if (pk.kind === 'energy' || pk.kind === 'node') col = '#4ad6ff';
+          else if (pk.kind === 'exit') col = '#7affd1';
+          else if (pk.kind === 'module' || pk.kind === 'shard' || pk.kind === 'log') col = '#c0a0ff';
+          RE.Echo.spawnPing(pk.x, pk.y, col);
+        }
+      }
+    },
+
+    _updateHazards(dt) {
+      const p = this.player;
+      for (let i = this.hazards.length - 1; i >= 0; i--) {
+        const h = this.hazards[i];
+        h.life -= dt; h.tickCd -= dt;
+        if (h.life <= 0) { this.hazards.splice(i, 1); continue; }
+        if (p.alive && M.dist(h.x, h.y, p.x, p.y) < h.r + p.radius && h.tickCd <= 0) {
+          h.tickCd = 0.5;
+          this.damagePlayer(h.dmg, { x: h.x, y: h.y });
+        }
+      }
     },
 
     _projectileCollisions() {
@@ -416,14 +455,16 @@
             if (pr.hitSet && pr.hitSet.has(e)) continue;
             if (M.circleOverlap(pr.x, pr.y, pr.r, e.x, e.y, e.r)) {
               const a = Math.atan2(pr.vy, pr.vx);
-              e.takeDamage(pr.damage, Math.cos(a) * 120, Math.sin(a) * 120, this);
+              const kb = pr.knockback || 120;
+              e.takeDamage(pr.damage, Math.cos(a) * kb, Math.sin(a) * kb, this);
               pr._impact(this, false);
-              this.hitStop(0.012);
-              if (pr.pierce > 0) {
-                pr.pierce--;
-                if (!pr.hitSet) pr.hitSet = new Set();
-                pr.hitSet.add(e);
-              } else { pr.alive = false; break; }
+              this.hitStop(CFG.hitStopKill);
+              if (pr.splash > 0) {
+                for (const o of this.enemies) { if (o !== e && o.alive && M.dist(pr.x, pr.y, o.x, o.y) < pr.splash) o.takeDamage(pr.splashDmg, 0, 0, this); }
+                RE.Particles.burst(pr.x, pr.y, 10, { speed: 200, color: pr.color, life: 0.4, size: 3, kind: 'spark' });
+              }
+              if (pr.pierce > 0) { pr.pierce--; if (!pr.hitSet) pr.hitSet = new Set(); pr.hitSet.add(e); }
+              else { pr.alive = false; break; }
             }
           }
         } else {
@@ -436,31 +477,24 @@
 
     _checkExit() {
       for (const pk of this.pickups) {
-        if (pk.kind === 'exit' && pk.alive) {
-          if (M.dist(pk.x, pk.y, this.player.x, this.player.y) < pk.r + this.player.radius) {
-            this.nextSector();
-          }
+        if (pk.kind === 'exit' && pk.alive && M.dist(pk.x, pk.y, this.player.x, this.player.y) < pk.r + this.player.radius) {
+          this.nextSector();
         }
       }
     },
 
     // ---- Render --------------------------------------------------------
     render() {
-      const ctx = this.ctx;
-      const W = CFG.viewW, H = CFG.viewH;
-      ctx.fillStyle = CFG.light.fogColor;
+      const ctx = this.ctx, W = CFG.viewW, H = CFG.viewH;
+      ctx.fillStyle = (this.biome && this.biome.palette.fog) || CFG.light.fogColor;
       ctx.fillRect(0, 0, W, H);
 
       if (this.state === 'title') { this._renderTitleBg(ctx); RE.Menus.title(ctx, this); this._cursor(ctx); return; }
-      if (this.state === 'meta') {
-        if (this.prevState === 'playing' || this.prevState === 'paused' || this.prevState === 'dead') this._renderWorld(ctx);
-        else this._renderTitleBg(ctx);
-        RE.Menus.meta(ctx, this); this._cursor(ctx); return;
-      }
+      if (this.state === 'meta') { this._renderTitleBg(ctx); RE.Menus.meta(ctx, this); this._cursor(ctx); return; }
+      if (this.state === 'codex') { this._renderTitleBg(ctx); RE.Menus.codex(ctx, this); this._cursor(ctx); return; }
 
       this._renderWorld(ctx);
       RE.HUD.render(ctx, this);
-
       if (this.state === 'paused') RE.Menus.pause(ctx, this);
       else if (this.state === 'reward') RE.Menus.reward(ctx, this);
       else if (this.state === 'dead') RE.Menus.gameover(ctx, this);
@@ -468,19 +502,14 @@
     },
 
     _cursor(ctx) {
-      // custom reticle at mouse
       const mx = RE.Input.mouse.x, my = RE.Input.mouse.y;
       ctx.save();
-      ctx.strokeStyle = 'rgba(150,220,255,0.7)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(150,220,255,0.7)'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(mx, my, 7, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(mx - 11, my); ctx.lineTo(mx - 4, my);
-      ctx.moveTo(mx + 4, my); ctx.lineTo(mx + 11, my);
-      ctx.moveTo(mx, my - 11); ctx.lineTo(mx, my - 4);
-      ctx.moveTo(mx, my + 4); ctx.lineTo(mx, my + 11);
-      ctx.stroke();
-      ctx.restore();
+      ctx.moveTo(mx - 11, my); ctx.lineTo(mx - 4, my); ctx.moveTo(mx + 4, my); ctx.lineTo(mx + 11, my);
+      ctx.moveTo(mx, my - 11); ctx.lineTo(mx, my - 4); ctx.moveTo(mx, my + 4); ctx.lineTo(mx, my + 11);
+      ctx.stroke(); ctx.restore();
     },
 
     _renderWorld(ctx) {
@@ -489,100 +518,91 @@
       ctx.save();
       ctx.translate(shake.x, shake.y);
       const camX = cam.x, camY = cam.y;
-
       this._renderTiles(ctx, camX, camY);
+      this._renderHazards(ctx, camX, camY);
       this._renderEchoRings(ctx, camX, camY);
-
-      // pickups (under entities)
       for (const pk of this.pickups) if (pk.alive) pk.render(ctx, cam, RE.Echo, this.player);
-      // enemies
       for (const e of this.enemies) if (e.alive) e.render(ctx, cam, RE.Echo, this.player);
-      // projectiles
       for (const pr of this.projectiles) if (pr.alive) pr.render(ctx, cam);
-      // player
       if (this.player && this.player.alive) this.player.render(ctx, cam);
-      // particles
       RE.Particles.render(ctx, { x: camX, y: camY, viewW: CFG.viewW, viewH: CFG.viewH });
-
+      this._renderPings(ctx, camX, camY);
       ctx.restore();
     },
 
     _renderTiles(ctx, camX, camY) {
       const map = this.map; if (!map) return;
-      const T = map.tile;
-      const b = this.biome.palette;
-      const p = this.player;
-      const minTx = Math.max(0, (camX / T | 0) - 1);
-      const maxTx = Math.min(map.w - 1, ((camX + CFG.viewW) / T | 0) + 1);
-      const minTy = Math.max(0, (camY / T | 0) - 1);
-      const maxTy = Math.min(map.h - 1, ((camY + CFG.viewH) / T | 0) + 1);
-
+      const T = map.tile, b = this.biome.palette, p = this.player;
+      const floorMem = this.biomeMod.memoryFloor || CFG.player.ghostFloor;
+      const minTx = Math.max(0, (camX / T | 0) - 1), maxTx = Math.min(map.w - 1, ((camX + CFG.viewW) / T | 0) + 1);
+      const minTy = Math.max(0, (camY / T | 0) - 1), maxTy = Math.min(map.h - 1, ((camY + CFG.viewH) / T | 0) + 1);
       for (let ty = minTy; ty <= maxTy; ty++) {
         for (let tx = minTx; tx <= maxTx; tx++) {
-          const bright = RE.Echo.tileBrightness(tx, ty, p);
+          let bright = RE.Echo.tileBrightness(tx, ty, p);
+          if (RE.Echo.seen[ty * map.w + tx] && floorMem > bright) bright = floorMem;
           if (bright <= 0.02) continue;
           const wall = map.isWallTile(tx, ty);
           const sx = tx * T - camX, sy = ty * T - camY;
           if (wall) {
-            // wall block with lit top edge
-            ctx.fillStyle = shade(b.wall, bright);
+            ctx.fillStyle = M.mixHex(b.fog, b.wall, Math.min(1, bright));
             ctx.fillRect(sx, sy, T + 1, T + 1);
-            if (bright > 0.25) {
-              ctx.fillStyle = shade(b.wallHi, bright);
-              ctx.fillRect(sx, sy, T + 1, 3);
-              ctx.fillRect(sx, sy, 3, T + 1);
-            }
+            if (bright > 0.25) { ctx.fillStyle = M.mixHex(b.fog, b.wallHi, Math.min(1, bright)); ctx.fillRect(sx, sy, T + 1, 3); ctx.fillRect(sx, sy, 3, T + 1); }
           } else {
-            ctx.fillStyle = shade(b.floor, bright);
+            ctx.fillStyle = M.mixHex(b.fog, b.floor, Math.min(1, bright));
             ctx.fillRect(sx, sy, T + 1, T + 1);
-            // subtle floor speckle
-            if (bright > 0.4 && ((tx * 31 + ty * 17) % 7 === 0)) {
-              ctx.fillStyle = RE.M.rgba(b.accent, 0.08 * bright);
-              ctx.fillRect(sx + T * 0.4, sy + T * 0.4, 3, 3);
-            }
+            if (bright > 0.4 && ((tx * 31 + ty * 17) % 7 === 0)) { ctx.fillStyle = RE.M.rgba(b.accent, 0.08 * bright); ctx.fillRect(sx + T * 0.4, sy + T * 0.4, 3, 3); }
           }
         }
       }
+    },
 
-      function shade(hex, bright) {
-        return RE.M.mixHex(b.fog, hex, Math.min(1, bright));
+    _renderHazards(ctx, camX, camY) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (const h of this.hazards) {
+        const a = M.clamp(h.life / h.maxLife, 0, 1) * 0.4;
+        const gr = ctx.createRadialGradient(h.x - camX, h.y - camY, 0, h.x - camX, h.y - camY, h.r);
+        gr.addColorStop(0, RE.M.rgba(h.color, a)); gr.addColorStop(1, RE.M.rgba(h.color, 0));
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(h.x - camX, h.y - camY, h.r, 0, Math.PI * 2); ctx.fill();
       }
+      ctx.restore();
     },
 
     _renderEchoRings(ctx, camX, camY) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
       for (const pulse of RE.Echo.pulses) {
-        const t = pulse.r / pulse.maxR;
-        const alpha = (1 - t) * 0.5;
-        if (alpha <= 0.01) continue;
+        const t = pulse.r / pulse.maxR; const alpha = (1 - t) * 0.5;
+        if (alpha <= 0.01 || pulse.r < 0) continue;
         ctx.strokeStyle = RE.M.rgba(this.biome.palette.accent, alpha);
         ctx.lineWidth = 2.5 * (1 - t) + 0.5;
-        ctx.beginPath();
-        ctx.arc(pulse.x - camX, pulse.y - camY, pulse.r, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(pulse.x - camX, pulse.y - camY, pulse.r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    },
+
+    _renderPings(ctx, camX, camY) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (const ping of RE.Echo.pings) {
+        const a = M.clamp(1 - ping.t / ping.life, 0, 1);
+        ctx.fillStyle = RE.M.rgba(ping.color, a * 0.9);
+        ctx.beginPath(); ctx.arc(ping.x - camX, ping.y - camY, 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = RE.M.rgba(ping.color, a * 0.4); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(ping.x - camX, ping.y - camY, 6, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.restore();
     },
 
     _renderTitleBg(ctx) {
-      // slow drifting echo rings for ambiance
       const W = CFG.viewW, H = CFG.viewH;
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
       for (let i = 0; i < 3; i++) {
-        const r = ((this.time * 60 + i * 140) % 420);
-        const a = (1 - r / 420) * 0.12;
-        ctx.strokeStyle = `rgba(60,140,220,${a})`;
-        ctx.lineWidth = 2;
+        const r = ((this.time * 60 + i * 140) % 420); const a = (1 - r / 420) * 0.12;
+        ctx.strokeStyle = `rgba(60,140,220,${a})`; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(W / 2, H * 0.26, r + 40, 0, Math.PI * 2); ctx.stroke();
       }
-      // floating specks
       for (let i = 0; i < 40; i++) {
         const x = (i * 97 + this.time * 8 * (1 + (i % 3))) % W;
         const y = (i * 53 + Math.sin(this.time * 0.3 + i) * 20 + i * 7) % H;
-        ctx.fillStyle = `rgba(120,180,240,${0.05 + (i % 5) * 0.01})`;
-        ctx.fillRect(x, y, 2, 2);
+        ctx.fillStyle = `rgba(120,180,240,${0.05 + (i % 5) * 0.01})`; ctx.fillRect(x, y, 2, 2);
       }
       ctx.restore();
     },

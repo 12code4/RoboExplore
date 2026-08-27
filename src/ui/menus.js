@@ -89,7 +89,10 @@
       by += bh + 12;
       const canUpgrade = RE.Save.data.coreShards > 0 || Object.keys(RE.Save.data.unlocks).length > 0 || RE.Save.data.runs > 0;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '✦  RECONSTRUCTOR', sub: `${RE.Save.data.coreShards} core-shards`, disabled: false })) game.openMeta();
-      by += bh + 12;
+      by += bh + 10;
+      const foundCount = Object.keys(RE.Save.data.logsFound || {}).length;
+      if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '❒  CODEX', sub: `${foundCount} fragments`, font: 'bold 16px monospace' })) game.openCodex('title');
+      by += bh + 10;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: (RE.Audio.muted ? '🔇  SOUND: OFF' : '🔊  SOUND: ON'), font: 'bold 15px monospace' })) { const m = RE.Audio.toggleMute(); RE.Save.data.settings.muted = m; RE.Save.save(); }
 
       // stats footer
@@ -236,10 +239,10 @@
       ctx.fillText(`✦ ${RE.Save.data.coreShards} core-shards`, W / 2, 84);
 
       const upgrades = RE.META_UPGRADES || [];
-      const cols = 3, cw = 250, ch = 92, gap = 16;
+      const cols = 3, cw = 250, ch = 80, gap = 13;
       const totalW = cols * cw + (cols - 1) * gap;
       let startX = (W - totalW) / 2;
-      let x = startX, y = 110, col = 0;
+      let x = startX, y = 100, col = 0;
       for (const u of upgrades) {
         const idx = this._i++;
         const level = RE.Save.data.unlocks[u.id] ? (typeof RE.Save.data.unlocks[u.id] === 'number' ? RE.Save.data.unlocks[u.id] : 1) : 0;
@@ -249,7 +252,8 @@
         if (hover && game._mouseMoved) this.focus = idx;
         const focused = idx === this.focus;
         const active = focused || hover;
-        const affordable = !maxed && RE.Save.data.coreShards >= cost;
+        const reqMet = !u.req || RE.Save.data.unlocks[u.req];
+        const affordable = !maxed && reqMet && RE.Save.data.coreShards >= cost;
 
         ctx.fillStyle = active ? 'rgba(40,32,60,0.9)' : 'rgba(24,20,38,0.85)';
         this._rr(ctx, x, y, cw, ch, 8); ctx.fill();
@@ -263,7 +267,7 @@
         this._wrap(ctx, u.desc, x + 12, y + 34, cw - 24, 13);
         ctx.font = 'bold 12px monospace';
         ctx.fillStyle = maxed ? '#7affa0' : (affordable ? '#c0a0ff' : 'rgba(150,130,170,0.6)');
-        ctx.fillText(maxed ? 'MAXED' : `✦ ${cost}`, x + 12, y + ch - 18);
+        ctx.fillText(maxed ? 'OWNED' : (!reqMet ? '🔒 locked' : `✦ ${cost}`), x + 12, y + ch - 18);
 
         if ((hover && game.mousePressed || (focused && (RE.Input.keyPressed('Enter') || RE.Input.keyPressed('Space')))) && affordable) {
           game.buyMeta(u, cost);
@@ -274,6 +278,47 @@
 
       const bw = 200, bh = 40;
       if (this.button(ctx, game, { x: (W - bw) / 2, y: H - 56, w: bw, h: bh, label: '◀  BACK' })) game.closeMeta();
+      this.end();
+    },
+
+    codex(ctx, game) {
+      const W = RE.CFG.viewW, H = RE.CFG.viewH;
+      this._dim(ctx, W, H, 0.85);
+      this.begin(game);
+      ctx.textAlign = 'center';
+      this._titleGlow(ctx, 'FIELD MEMORY', W / 2, 46, 28, '#9fe6ff');
+      const all = Object.values(RE.LOGS || {});
+      const found = all.filter(l => RE.Save.data.logsFound[l.id]);
+      ctx.font = '12px monospace'; ctx.fillStyle = 'rgba(160,200,230,0.7)';
+      ctx.fillText(`${found.length} / ${all.length} fragments recovered`, W / 2, 72);
+
+      const cols = 2, cw = 400, ch = 96, gap = 18;
+      const totalW = cols * cw + gap;
+      let x = (W - totalW) / 2, y = 92, col = 0;
+      const shown = found.slice(0, 8);
+      for (const l of shown) {
+        ctx.fillStyle = 'rgba(20,30,44,0.85)';
+        this._rr(ctx, x, y, cw, ch, 8); ctx.fill();
+        ctx.strokeStyle = 'rgba(120,190,230,0.35)'; ctx.lineWidth = 1;
+        this._rr(ctx, x, y, cw, ch, 8); ctx.stroke();
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#cfe9ff';
+        ctx.fillText(l.title, x + 12, y + 10);
+        ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(150,180,210,0.6)';
+        ctx.fillText('— ' + l.source, x + 12, y + 26);
+        ctx.font = '11px monospace'; ctx.fillStyle = 'rgba(190,210,230,0.85)';
+        this._wrap(ctx, l.text, x + 12, y + 42, cw - 24, 14);
+        col++; x += cw + gap;
+        if (col >= cols) { col = 0; x = (W - totalW) / 2; y += ch + gap; }
+      }
+      if (!found.length) {
+        ctx.textAlign = 'center'; ctx.font = '13px monospace'; ctx.fillStyle = 'rgba(160,190,220,0.6)';
+        ctx.fillText('No fragments recovered yet. Pulse into the dark corners of the Hollow.', W / 2, H / 2);
+      }
+      if (found.length > 8) { ctx.textAlign = 'center'; ctx.font = '11px monospace'; ctx.fillStyle = 'rgba(150,180,210,0.5)'; ctx.fillText(`+${found.length - 8} more recovered`, W / 2, H - 76); }
+
+      const bw = 200, bh = 40;
+      if (this.button(ctx, game, { x: (W - bw) / 2, y: H - 56, w: bw, h: bh, label: '◀  BACK' })) game.closeCodex();
       this.end();
     },
 

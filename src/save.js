@@ -14,6 +14,7 @@
       totalKills: 0,
       unlocks: {},        // meta unlock id -> true
       logsFound: {},      // log id -> true
+      milestones: {},     // first-reach depth milestones -> true
       settings: { muted: false, screenShake: 1, showFps: false },
       seenIntro: false,
     };
@@ -31,6 +32,7 @@
           this.data.settings = Object.assign(defaults().settings, parsed.settings || {});
           this.data.unlocks = parsed.unlocks || {};
           this.data.logsFound = parsed.logsFound || {};
+          this.data.milestones = parsed.milestones || {};
         }
       } catch (e) {
         this.data = defaults();

@@ -9,6 +9,7 @@
   const KIND = {
     salvage:  { r: 8,  color: '#ffe27a', glow: '#fff2b0', sfx: 'pickup' },
     energy:   { r: 9,  color: '#4ad6ff', glow: '#b6ecff', sfx: 'energy' },
+    node:     { r: 16, color: '#4ad6ff', glow: '#b6ecff', sfx: null },
     hull:     { r: 9,  color: '#5affa0', glow: '#c4ffe0', sfx: 'pickup' },
     module:   { r: 12, color: '#ff8adf', glow: '#ffc9ef', sfx: 'pickup_big' },
     shard:    { r: 10, color: '#c0a0ff', glow: '#e6d9ff', sfx: 'pickup_big' },
@@ -30,8 +31,10 @@
       magnetized: false,
       bob: Math.random() * Math.PI * 2,
       spin: Math.random() * Math.PI * 2,
-      collectible: kind !== 'exit' && kind !== 'station',
+      collectible: kind !== 'exit' && kind !== 'station' && kind !== 'node',
       solidStation: kind === 'station',
+      charge: opts.charge || 0,   // finite energy nodes
+      docked: false,
       used: false,
 
       update(dt, game) {
@@ -86,6 +89,7 @@
 
         if (this.kind === 'exit') { this._renderExit(ctx, light); ctx.restore(); return; }
         if (this.kind === 'station') { this._renderStation(ctx, light); ctx.restore(); return; }
+        if (this.kind === 'node') { this._renderNode(ctx, light); ctx.restore(); return; }
 
         // glow halo
         ctx.globalCompositeOperation = 'lighter';
@@ -151,6 +155,39 @@
           ctx.moveTo(-8, yy - 3); ctx.lineTo(0, yy + 4); ctx.lineTo(8, yy - 3);
         }
         ctx.lineWidth = 3; ctx.strokeStyle = this.color; ctx.stroke();
+      },
+      _renderNode(ctx, light) {
+        const inert = this.charge <= 0;
+        const vis = Math.max(inert ? 0.14 : 0.28, light);
+        ctx.globalAlpha = vis;
+        // housing
+        ctx.strokeStyle = inert ? 'rgba(80,90,110,0.6)' : this.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI * 2); ctx.stroke();
+        if (!inert) {
+          ctx.globalCompositeOperation = 'lighter';
+          const pulse = 0.5 + 0.5 * Math.sin(this.bob * 1.3);
+          const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, this.r);
+          gr.addColorStop(0, RE.M.rgba(this.glow, 0.7 * pulse * vis));
+          gr.addColorStop(1, RE.M.rgba(this.glow, 0));
+          ctx.fillStyle = gr;
+          ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI * 2); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+          // charge arc
+          const frac = RE.M.clamp(this.charge / (this.maxCharge || this.charge || 1), 0, 1);
+          ctx.strokeStyle = RE.M.rgba('#e8fbff', 0.8 * vis);
+          ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.arc(0, 0, this.r + 4, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
+          // docking ring
+          if (this.docked) {
+            ctx.strokeStyle = RE.M.rgba('#b6ffe0', 0.5);
+            ctx.beginPath(); ctx.arc(0, 0, RE.CFG.node.radius, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = inert ? 'rgba(120,130,150,0.7)' : '#eaffff';
+        ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('⚡', 0, 1);
       },
       _renderStation(ctx, light) {
         const vis = Math.max(0.3, light);
