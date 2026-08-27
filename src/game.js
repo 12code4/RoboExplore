@@ -639,6 +639,13 @@
       if (this.state === 'codex') { this._renderTitleBg(ctx); RE.Menus.codex(ctx, this); this._cursor(ctx); return; }
 
       this._renderWorld(ctx);
+      // subtle atmospheric vignette (frames the dark, focuses the lit center)
+      if (!this._vignette) {
+        this._vignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.95);
+        this._vignette.addColorStop(0, 'rgba(0,0,0,0)');
+        this._vignette.addColorStop(1, 'rgba(0,0,0,0.55)');
+      }
+      ctx.fillStyle = this._vignette; ctx.fillRect(0, 0, W, H);
       RE.HUD.render(ctx, this);
       // full-screen hurt/impact flash
       if (this.flashT > 0 && this.flashMax > 0) {
