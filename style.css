@@ -1,0 +1,48 @@
+/* RoboExplore — page shell & canvas presentation */
+:root {
+  --bg: #05070c;
+  --ink: #cfe9ff;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+#game-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(1200px 800px at 50% 40%, #0a1020 0%, #05070c 70%, #020306 100%);
+}
+#game {
+  display: block;
+  image-rendering: optimizeQuality;
+  /* sized by JS to preserve aspect ratio and fill available space */
+  box-shadow: 0 0 60px rgba(0, 20, 60, 0.5), 0 0 3px rgba(120, 200, 255, 0.15);
+  outline: none;
+  cursor: crosshair;
+}
+#rotate-hint {
+  position: fixed;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  opacity: 0.35;
+  pointer-events: none;
+  display: none;
+}
+@media (max-aspect-ratio: 1/1) and (max-width: 720px) {
+  #rotate-hint { display: block; }
+}

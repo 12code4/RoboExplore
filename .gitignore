@@ -1,0 +1,8 @@
+# dependencies (only used by the dev smoke test)
+node_modules/
+package-lock.json
+
+# test / debug artifacts
+shot_*.png
+*.log
+.DS_Store

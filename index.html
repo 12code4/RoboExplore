@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>RoboExplore</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-root">
+    <canvas id="game"></canvas>
+    <div id="rotate-hint">Rotate your device or widen the window for the best experience.</div>
+  </div>
+
+  <!-- ==== Source load order matters (classic scripts, global RE namespace) ==== -->
+  <!-- utilities -->
+  <script src="src/util/rng.js"></script>
+  <script src="src/util/math.js"></script>
+  <script src="src/data/config.js"></script>
+  <!-- engine -->
+  <script src="src/engine/input.js"></script>
+  <script src="src/engine/audio.js"></script>
+  <script src="src/engine/particles.js"></script>
+  <script src="src/engine/camera.js"></script>
+  <!-- world -->
+  <script src="src/world/gen.js"></script>
+  <script src="src/world/tilemap.js"></script>
+  <!-- data -->
+  <script src="src/data/enemies.js"></script>
+  <script src="src/data/modules.js"></script>
+  <script src="src/data/biomes.js"></script>
+  <!-- entities -->
+  <script src="src/entities/projectile.js"></script>
+  <script src="src/entities/pickup.js"></script>
+  <script src="src/entities/enemy.js"></script>
+  <script src="src/entities/player.js"></script>
+  <!-- systems -->
+  <script src="src/systems/echo.js"></script>
+  <!-- ui -->
+  <script src="src/ui/hud.js"></script>
+  <script src="src/ui/menus.js"></script>
+  <!-- core -->
+  <script src="src/save.js"></script>
+  <script src="src/game.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
