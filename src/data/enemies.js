@@ -11,6 +11,12 @@
       hp: 10, radius: 10, speed: 130, touchDamage: 6, danger: 2,
       color: '#ff5a6e', glow: '#ff9aa8', salvage: [1, 3], firstSector: 1,
     },
+    reclaimer: {
+      id: 'reclaimer', name: 'Reclaimer', ai: 'chaser', shape: 'stalker',
+      hp: 44, radius: 12, speed: 175, touchDamage: 14, danger: 7,
+      color: '#ff2d55', glow: '#ff7a9a', salvage: [4, 7], firstSector: 1,
+      selfLit: true,   // always visible — an ominous, inescapable hunter
+    },
     lumen_moth: {
       id: 'lumen_moth', name: 'Lumen Moth', ai: 'moth', shape: 'moth',
       hp: 8, radius: 8, speed: 95, touchDamage: 6, danger: 3,

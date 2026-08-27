@@ -115,6 +115,7 @@
       this.lastPulse = null;
       this._empT = 9; this._empWas = false; this.echoDisabled = false;  // first EM surge ~6s after entry
       this.bossBeams = [];
+      this._reclaimT = 0; this._reclaimWarned = false;
       RE.Particles.clear();
 
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
@@ -500,6 +501,23 @@
       this.enemies = this.enemies.filter(e => e.alive);
       this.projectiles = this.projectiles.filter(pr => pr.alive);
       this.pickups = this.pickups.filter(pk => pk.alive);
+
+      // Reclaimer overstay hunter (anti-camp): darkness is the pressure, but
+      // past 150s in a sector the Hollow sends escalating self-lit hunters.
+      if (this._sectorT > 150 && !this._descending && !(this.boss && this.boss.alive)) {
+        if (!this._reclaimWarned) { this._reclaimWarned = true; RE.HUD.showBanner('THE HOLLOW STIRS', 'something is coming', 2.6); RE.Audio.sfx('boss'); }
+        this._reclaimT = (this._reclaimT || 0) - dt;
+        if (this._reclaimT <= 0) {
+          this._reclaimT = Math.max(9, 20 - (this._sectorT - 150) * 0.05);
+          const count = this.enemies.reduce((n, e) => n + (e.id === 'reclaimer' && e.alive ? 1 : 0), 0);
+          if (count < 6) {
+            const c = this.gen.cellXY(this.gen.pickFeatureCell(14, 3));
+            const pos = this.map.centerOfTile(c.x, c.y);
+            const r = RE.makeEnemy('reclaimer', pos.x, pos.y, this.sector + 2, false);
+            r.awake = true; this.enemies.push(r);
+          }
+        }
+      }
 
       let threat = 0;
       for (const e of this.enemies) if (e.awake && M.dist(e.x, e.y, p.x, p.y) < 360) threat++;
