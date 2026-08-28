@@ -4,6 +4,16 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.3.0] — Content Update: The Deep Descent (New Game+)
+Escalating optional difficulty for players who have reached the Core.
+
+### Added
+- **The Deep Descent** — clearing the game unlocks Deep I; clearing each tier
+  unlocks the next (up to Deep III). Higher tiers spawn more enemies with more
+  hull and damage (bosses included) and pay out proportionally richer salvage
+  and bonus core-shards. Selectable from the title once unlocked; the active
+  tier is tagged in the HUD.
+
 ## [1.2.0] — Content Update: Daily Seed
 A shared, deterministic run of the day, with a per-day personal best.
 

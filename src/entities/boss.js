@@ -128,7 +128,7 @@
         // contact damage
         if (d < this.r + p.radius && (this._contactCd = (this._contactCd || 0) - dt) <= 0) {
           this._contactCd = 0.6;
-          game.damagePlayer(this.phase.contact || 14, this);
+          game.damagePlayer((this.phase.contact || 14) * this.dmgMul, this);
         }
 
         // keep self-lit
@@ -179,12 +179,14 @@
       },
 
       _radial(game, n, speed, dmg, off) {
+        dmg *= this.dmgMul;
         for (let i = 0; i < n; i++) {
           const a = off + (i / n) * TAU;
           game.spawnEnemyProjectile(this.x + Math.cos(a) * this.r, this.y + Math.sin(a) * this.r, Math.cos(a) * speed, Math.sin(a) * speed, dmg, this.glow);
         }
       },
       _aimed(game, aim, n, speed, dmg, spread) {
+        dmg *= this.dmgMul;
         for (let i = 0; i < n; i++) {
           const a = aim + (n > 1 ? (i / (n - 1) - 0.5) * spread * 2 : 0);
           game.spawnEnemyProjectile(this.x + Math.cos(a) * this.r, this.y + Math.sin(a) * this.r, Math.cos(a) * speed, Math.sin(a) * speed, dmg, this.glow);
@@ -193,13 +195,14 @@
       _spiral(game, atk) {
         // fire a quick burst offset by moveT to create a rotating stream
         const base = this.moveT * (atk.turn || 3);
+        const dmg = (atk.dmg || 10) * this.dmgMul;
         for (let k = 0; k < (atk.arms || 3); k++) {
           const a = base + k / (atk.arms || 3) * TAU;
-          game.spawnEnemyProjectile(this.x + Math.cos(a) * this.r, this.y + Math.sin(a) * this.r, Math.cos(a) * (atk.speed || 180), Math.sin(a) * (atk.speed || 180), atk.dmg || 10, this.glow);
+          game.spawnEnemyProjectile(this.x + Math.cos(a) * this.r, this.y + Math.sin(a) * this.r, Math.cos(a) * (atk.speed || 180), Math.sin(a) * (atk.speed || 180), dmg, this.glow);
         }
       },
       _shockwave(game, max, speed, dmg) {
-        this.rings.push({ x: this.x, y: this.y, r: this.r, pr: this.r, max, speed, dmg, band: 26, hit: false });
+        this.rings.push({ x: this.x, y: this.y, r: this.r, pr: this.r, max, speed, dmg: dmg * this.dmgMul, band: 26, hit: false });
         Particles.ring(this.x, this.y, { color: this.glow, size: this.r, life: 0.5 });
         game.camera.addTrauma(0.15);
       },
@@ -213,7 +216,7 @@
       _sweep(game, atk) {
         // spawn a rotating beam that lives for a duration as a temporary object
         game.bossBeams = game.bossBeams || [];
-        game.bossBeams.push({ boss: this, x: this.x, y: this.y, angle: this.tele ? this.tele.beamAngle : this.facing, len: atk.len || 320, arc: atk.arc || 0.32, rot: atk.rot || 1.0, life: atk.dur || 3, t: 0, dmg: atk.dmg || 8, color: this.glow, tick: 0 });
+        game.bossBeams.push({ boss: this, x: this.x, y: this.y, angle: this.tele ? this.tele.beamAngle : this.facing, len: atk.len || 320, arc: atk.arc || 0.32, rot: atk.rot || 1.0, life: atk.dur || 3, t: 0, dmg: (atk.dmg || 8) * this.dmgMul, color: this.glow, tick: 0 });
       },
       _blackout(game, atk) {
         this._blackoutT = atk.dur || 4;

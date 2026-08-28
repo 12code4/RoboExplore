@@ -22,6 +22,14 @@
     { id: 'revive', name: 'Emergency Reboot', desc: 'Revive once per run at 30 hull.', cost: 30 },
   ];
 
+  // The Deep Descent (New Game+) difficulty tiers, unlocked by clearing.
+  RE.DEEP_TIERS = [
+    { name: 'Standard', hp: 1, dmg: 1, count: 1, reward: 1 },
+    { name: 'Deep I', hp: 1.15, dmg: 1.10, count: 1.15, reward: 1.20 },
+    { name: 'Deep II', hp: 1.35, dmg: 1.22, count: 1.30, reward: 1.45 },
+    { name: 'Deep III', hp: 1.60, dmg: 1.38, count: 1.50, reward: 1.75 },
+  ];
+
   const Game = {
     canvas: null, ctx: null,
     state: 'title', prevState: 'title',
@@ -65,6 +73,8 @@
       opts = opts || {};
       RE.Audio.resume();
       this.daily = !!opts.daily;
+      this.depthTier = M.clamp(opts.tier || 0, 0, 3);
+      this.difficulty = RE.DEEP_TIERS[this.depthTier];
       if (this.daily) { this.dailyKey = this._dailyKey(); this.seed = RE.RNG.hashSeed('roboexplore-daily:' + this.dailyKey); }
       else this.seed = RE.RNG.randomSeed();
       this.rng = RE.RNG.make(this.seed);
@@ -73,6 +83,7 @@
       this.biome = null; this.won = false; this._descending = false;
       this.player = RE.makePlayer(0, 0);
       this._applyMeta(this.player);
+      this.salvageMul *= this.difficulty.reward;
       this.enemies = []; this.projectiles = []; this.pickups = []; this.hazards = []; this.boss = null;
       RE.HUD.reset();
       RE.Particles.clear();
@@ -155,17 +166,19 @@
       const cell = (idx) => { const c = gen.cellXY(idx); return map.centerOfTile(c.x, c.y); };
       const eliteChance = n < 4 ? 0 : Math.min(0.25, (n - 3) * 0.03);
 
+      const diff = this.difficulty || RE.DEEP_TIERS[0];
       // Boss guardian on threshold sectors.
       if (isThreshold) {
         const bid = RE.BIOME_BOSS[biome.id];
         const pos = cell(gen.exitIdx);
         const boss = RE.makeBoss(bid, pos.x, pos.y, n);
+        boss.hp = Math.round(boss.hp * diff.hp); boss.maxHp = boss.hp; boss.dmgMul *= diff.dmg;
         this.enemies.push(boss);
         this.boss = boss;
         RE.HUD.showBanner(boss.name.split(',')[0], 'guardian of the shaft', 3);
       }
 
-      const count = Math.min(22, Math.round(5 + n * 0.85));
+      const count = Math.min(30, Math.round((5 + n * 0.85) * diff.count));
       const pool = biome.enemies;
       // per-type filler caps: heavy/mini-boss enemies must stay rare
       const caps = { leviathan_eye: 1, warden_node: 2 };
@@ -177,7 +190,7 @@
         while (caps[id] && (counts[id] || 0) >= caps[id] && tries++ < 6) id = rng.pick(pool);
         counts[id] = (counts[id] || 0) + 1;
         const elite = id !== 'leviathan_eye' && rng.next() < eliteChance;
-        this.enemies.push(RE.makeEnemy(id, pos.x, pos.y, n, elite));
+        this.enemies.push(this._scaleEnemy(RE.makeEnemy(id, pos.x, pos.y, n, elite)));
       }
 
       // Energy node (finite dock) — guaranteed.
@@ -218,6 +231,13 @@
       }
     },
 
+    _scaleEnemy(e) {
+      const d = this.difficulty;
+      if (!d || d.hp === 1) return e;
+      e.hp = Math.round(e.hp * d.hp); e.maxHp = Math.round(e.maxHp * d.hp); e.dmgMul *= d.dmg;
+      return e;
+    },
+
     nextSector() {
       if (this._descending) return;
       // gate: on a threshold sector, the guardian must fall first
@@ -249,6 +269,10 @@
       if (this.won) {
         RE.Save.data.clears = (RE.Save.data.clears || 0) + 1;
         RE.Save.data.unlocks.ngplus = true;              // unlock post-1.0 content hook
+        // Unlock the next Deep Descent tier.
+        const cur = RE.Save.data.deepTier || 0;
+        RE.Save.data.deepTier = this.depthTier === 0 ? Math.max(cur, 1) : Math.max(cur, Math.min(this.depthTier + 1, 3));
+        this.runShards += this.depthTier * 5;            // bonus shards for harder clears
         // Ending B (the twist) if both key logs were ever recovered.
         this.endingB = !!(RE.Save.data.logsFound['a_before'] && RE.Save.data.logsFound['a_none']);
       }
@@ -540,7 +564,7 @@
           if (count < 6) {
             const c = this.gen.cellXY(this.gen.pickFeatureCell(14, 3));
             const pos = this.map.centerOfTile(c.x, c.y);
-            const r = RE.makeEnemy('reclaimer', pos.x, pos.y, this.sector + 2, false);
+            const r = this._scaleEnemy(RE.makeEnemy('reclaimer', pos.x, pos.y, this.sector + 2, false));
             r.awake = true; this.enemies.push(r);
           }
         }

@@ -90,6 +90,7 @@
       ctx.fillStyle = 'rgba(160,200,230,0.7)';
       ctx.fillText(game.biome ? game.biome.name : '', 18, 33);
       if (game.daily) { ctx.font = 'bold 11px monospace'; ctx.fillStyle = 'rgba(255,210,120,0.85)'; ctx.fillText('☀ DAILY  ·  seed ' + (game.seed >>> 0).toString(36), 18, 50); }
+      else if (game.depthTier > 0 && RE.DEEP_TIERS) { ctx.font = 'bold 11px monospace'; ctx.fillStyle = 'rgba(255,140,150,0.9)'; ctx.fillText('⇊ ' + RE.DEEP_TIERS[game.depthTier].name.toUpperCase(), 18, 50); }
 
       // --- Top-right: salvage / shards / score ---
       ctx.textAlign = 'right';

@@ -17,6 +17,7 @@
       milestones: {},     // first-reach depth milestones -> true
       daily: null,        // { date, best, sector } for the daily seed
       clears: 0,
+      deepTier: 0,        // highest unlocked Deep Descent (NG+) tier
       settings: { muted: false, screenShake: 1, showFps: false },
       seenIntro: false,
     };
