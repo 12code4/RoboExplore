@@ -755,12 +755,16 @@
 
     _cursor(ctx) {
       const mx = RE.Input.mouse.x, my = RE.Input.mouse.y;
+      // Reticle glows gold during the Echo-Charge window (boosted shots).
+      const charged = this.state === 'playing' && this.player && this.player.alive && this.player.sincePulse <= CFG.player.echoChargeWindow;
       ctx.save();
-      ctx.strokeStyle = 'rgba(150,220,255,0.7)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(mx, my, 7, 0, Math.PI * 2); ctx.stroke();
+      if (charged) { ctx.strokeStyle = 'rgba(255,220,120,0.95)'; ctx.shadowColor = '#ffd27a'; ctx.shadowBlur = 8; ctx.lineWidth = 2; }
+      else { ctx.strokeStyle = 'rgba(150,220,255,0.7)'; ctx.lineWidth = 1.5; }
+      const r = charged ? 9 : 7;
+      ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(mx - 11, my); ctx.lineTo(mx - 4, my); ctx.moveTo(mx + 4, my); ctx.lineTo(mx + 11, my);
-      ctx.moveTo(mx, my - 11); ctx.lineTo(mx, my - 4); ctx.moveTo(mx, my + 4); ctx.lineTo(mx, my + 11);
+      ctx.moveTo(mx - r - 4, my); ctx.lineTo(mx - 4, my); ctx.moveTo(mx + 4, my); ctx.lineTo(mx + r + 4, my);
+      ctx.moveTo(mx, my - r - 4); ctx.lineTo(mx, my - 4); ctx.moveTo(mx, my + 4); ctx.lineTo(mx, my + r + 4);
       ctx.stroke(); ctx.restore();
     },
 
