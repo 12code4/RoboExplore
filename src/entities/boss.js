@@ -48,7 +48,8 @@
         for (let i = 0; i < 5; i++) setTimeoutBurst(this, i);
         Particles.burst(this.x, this.y, 60, { speed: 360, color: this.glow, life: 1.2, size: 4, kind: 'spark' });
         Particles.ring(this.x, this.y, { color: this.glow, size: this.r, life: 0.9 });
-        game.camera.addTrauma(0.9); game.hitStop(0.12);
+        game.camera.addTrauma(0.9); game.hitStop(0.1); game.triggerSlowmo(0.9);
+        game.screenFlash(this.glow, 0.3, 0.5);
         RE.Audio.sfx('boss');
         game.onEnemyKilled(this);
       },

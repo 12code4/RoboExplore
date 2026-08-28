@@ -135,7 +135,7 @@
       this._empT = 9; this._empWas = false; this.echoDisabled = false;  // first EM surge ~6s after entry
       this.bossBeams = [];
       this._reclaimT = 0; this._reclaimWarned = false;
-      this.chronoT = 0; this.enemyTimeScale = 1;
+      this.chronoT = 0; this.enemyTimeScale = 1; this._slowmoT = 0;
       RE.Particles.clear();
 
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
@@ -484,7 +484,11 @@
     get mousePressed() { return RE.Input.mousePressed(); },
 
     // ---- Update --------------------------------------------------------
+    triggerSlowmo(dur) { this._slowmoT = Math.max(this._slowmoT || 0, dur); },
+
     update(dt) {
+      // Cinematic slow-motion (e.g. on a boss kill) scales the whole sim briefly.
+      if (this._slowmoT > 0) { this._slowmoT -= dt; dt *= 0.35; }
       this.time += dt;
       this._frames++; this._fpsT += dt;
       if (this._fpsT >= 0.5) { this.fps = this._frames / this._fpsT; this._frames = 0; this._fpsT = 0; }
