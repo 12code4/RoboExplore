@@ -156,6 +156,15 @@
       this._titleGlow(ctx, won ? 'CORE REACHED' : 'SIGNAL LOST', W / 2, H * 0.18, 40, won ? '#7affd1' : '#ff4d6d');
       ctx.textAlign = 'center';
 
+      // Mode tag + new-record callouts.
+      const r0 = game.runStats;
+      let modeLine = '';
+      if (game.daily) modeLine = '☀ DAILY RUN · seed ' + (game.seed >>> 0).toString(36);
+      else if (game.depthTier > 0 && RE.DEEP_TIERS) modeLine = '⇊ ' + RE.DEEP_TIERS[game.depthTier].name.toUpperCase();
+      if (modeLine) { ctx.font = 'bold 12px monospace'; ctx.fillStyle = game.daily ? 'rgba(255,210,120,0.9)' : 'rgba(255,140,150,0.9)'; ctx.fillText(modeLine, W / 2, H * 0.18 + 26); }
+      const newDaily = game.daily && game.dailyKey && RE.Save.data.daily && RE.Save.data.daily.date === game.dailyKey && RE.Save.data.daily.best === r0.score && r0.score > 0;
+      if (newDaily) { ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#ffe27a'; ctx.fillText('★ NEW DAILY BEST ★', W / 2, H * 0.18 + 44); }
+
       // Ending narrative (win only).
       if (won) {
         ctx.font = 'italic 13px monospace'; ctx.fillStyle = 'rgba(200,235,255,0.85)';
