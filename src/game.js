@@ -809,16 +809,22 @@
     _renderHazards(ctx, camX, camY) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       for (const h of this.hazards) {
-        let a = h.permanent ? 0.5 : M.clamp(h.life / h.maxLife, 0, 1) * 0.4;
-        if (h.periodic && !h.active) a *= 0.18;  // dim + warn when off
+        const pulse = 0.75 + 0.25 * Math.sin(this.time * 3 + h.x * 0.02);
+        let a = (h.permanent ? 0.55 : M.clamp(h.life / h.maxLife, 0, 1) * 0.42) * (h.permanent ? pulse : 1);
+        if (h.periodic && !h.active) a *= 0.2;  // dim + warn when off
         const sx = h.x - camX, sy = h.y - camY;
         const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, h.r);
-        gr.addColorStop(0, RE.M.rgba(h.color, a)); gr.addColorStop(1, RE.M.rgba(h.color, 0));
+        gr.addColorStop(0, RE.M.rgba(h.color, a));
+        gr.addColorStop(0.6, RE.M.rgba(h.color, a * 0.5));
+        gr.addColorStop(1, RE.M.rgba(h.color, 0));
         ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(sx, sy, h.r, 0, Math.PI * 2); ctx.fill();
-        // active-edge ring for periodic hazards
-        if (h.periodic) {
-          ctx.strokeStyle = RE.M.rgba(h.color, (h.active ? 0.6 : 0.25));
-          ctx.lineWidth = h.active ? 2 : 1;
+        // a defined danger edge so hazards are unmistakable "don't step here"
+        if (h.permanent) {
+          ctx.strokeStyle = RE.M.rgba(h.color, 0.45 * pulse); ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(sx, sy, h.r * 0.82, 0, Math.PI * 2); ctx.stroke();
+        } else if (h.periodic) {
+          ctx.strokeStyle = RE.M.rgba(h.color, (h.active ? 0.65 : 0.28));
+          ctx.lineWidth = h.active ? 2.5 : 1;
           ctx.beginPath(); ctx.arc(sx, sy, h.r * 0.7, 0, Math.PI * 2); ctx.stroke();
         }
       }
