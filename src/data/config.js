@@ -5,7 +5,7 @@
   'use strict';
 
   const CFG = {
-    version: '1.3.1',
+    version: '1.3.2',
 
     // Rendering ----------------------------------------------------------
     viewW: 960,

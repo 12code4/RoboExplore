@@ -4,6 +4,17 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.3.2] — Polish Pass B
+Final refinement sweep.
+
+### Added / Changed
+- Clearer boss sweep/gaze telegraphs: a bright wedge preview traces the beam's
+  path during the tell (with a short grace so it never hits on frame one).
+- A driving, pulsing boss-fight music layer over the ambient bed.
+- README documents the Daily Run, Deep Descent, and accessibility options.
+- Verified no regressions from the Pass A fixes via the full test suite, boss
+  runs, the playtest bot, and a Daily-determinism check.
+
 ## [1.3.1] — Polish Pass A
 Feel, fairness, and correctness across the post-1.0 systems, plus fixes from a
 second adversarial multi-dimension code review (21 verified findings).
