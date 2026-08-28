@@ -60,6 +60,11 @@ Gamepad and touch input are also supported.
 - **Signature twists**: Echo-Resonance (pulses mark enemies), Echo-Charge (shots
   hit harder right after a pulse), Echo-Return pings, and enemies that hear you.
 - 16 discoverable **log fragments**, a Codex, and two endings.
+- **Replayability**: a **Daily Run** (one deterministic seed shared by everyone,
+  with a per-day best) and **The Deep Descent** — New Game+ difficulty tiers that
+  unlock as you clear, scaling enemies and rewards.
+- **Accessibility**: screen-shake toggle, sound toggle, mouse/keyboard, gamepad,
+  and touch input.
 
 ## Tech
 
