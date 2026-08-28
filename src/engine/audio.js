@@ -152,9 +152,15 @@
           this.noise({ dur: 0.09, freq: 2200 * m, to: 700 * m, gain: 0.16, type: 'highpass', q: 0.6 });
           break;
         }
-        case 'enemy_die':
-          this.noise({ dur: 0.32, freq: 900, to: 120, gain: 0.24, type: 'bandpass', q: 0.8 });
-          this.tone({ type: 'square', freq: 200, to: 60, dur: 0.26, gain: 0.14 });
+        case 'enemy_die': {
+          const m = param || 1;  // pitch multiplier: bigger enemies die lower
+          this.noise({ dur: 0.32, freq: 900 * m, to: 120 * m, gain: 0.24, type: 'bandpass', q: 0.8 });
+          this.tone({ type: 'square', freq: 200 * m, to: 60 * m, dur: 0.26, gain: 0.14 });
+          break;
+        }
+        case 'descend':
+          this.tone({ type: 'sine', freq: 620, to: 130, dur: 0.7, gain: 0.2, filter: { type: 'lowpass', freq: 1800, to: 400 } });
+          this.noise({ dur: 0.6, freq: 1400, to: 200, gain: 0.14, type: 'lowpass' });
           break;
         case 'hurt':
           this.tone({ type: 'sawtooth', freq: 180, to: 70, dur: 0.3, gain: 0.3, filter: { type: 'lowpass', freq: 900 } });

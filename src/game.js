@@ -245,6 +245,8 @@
       this._descending = true;
       if (this.sector >= CFG.sectorsPerRun) { this.win(); return; }
       RE.HUD.showBanner('DESCENDING', '', 1.1);
+      RE.Audio.sfx('descend');
+      this.screenFlash('#7affd1', 0.22, 0.45);
       this.loadSector(this.sector + 1);
     },
 

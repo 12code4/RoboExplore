@@ -63,7 +63,7 @@
       die(game) {
         if (!this.alive) return;
         this.alive = false;
-        RE.Audio.sfx('enemy_die');
+        RE.Audio.sfx('enemy_die', M.clamp(30 / this.maxHp, 0.5, 1.6));
         Particles.burst(this.x, this.y, 16, { speed: 200, color: def.glow, life: 0.6, size: 3.4, kind: 'spark' });
         Particles.burst(this.x, this.y, 8, { speed: 90, color: def.color, life: 0.5, size: 3, kind: 'dot' });
         Particles.ring(this.x, this.y, { color: def.glow, size: this.r, life: 0.4 });
