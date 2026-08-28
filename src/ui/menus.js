@@ -83,17 +83,20 @@
       ctx.font = '13px monospace'; ctx.fillStyle = 'rgba(160,200,230,0.7)';
       ctx.fillText('descend into the Hollow · pulse to see · survive the dark', W / 2, H * 0.26 + 42);
 
-      const bw = 260, bh = 46, bx = (W - bw) / 2;
-      let by = H * 0.44;
+      const bw = 260, bh = 42, bx = (W - bw) / 2;
+      let by = H * 0.40;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '▶  DESCEND', sub: 'begin a new run' })) game.startRun();
-      by += bh + 12;
-      const canUpgrade = RE.Save.data.coreShards > 0 || Object.keys(RE.Save.data.unlocks).length > 0 || RE.Save.data.runs > 0;
+      by += bh + 9;
+      const daily = RE.Save.data.daily;
+      const todays = (daily && daily.date === game._dailyKey()) ? `today's best: ${daily.best}` : 'a shared seed for everyone';
+      if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '☀  DAILY RUN', sub: todays, font: 'bold 16px monospace' })) game.startRun({ daily: true });
+      by += bh + 9;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '✦  RECONSTRUCTOR', sub: `${RE.Save.data.coreShards} core-shards`, disabled: false })) game.openMeta();
-      by += bh + 10;
+      by += bh + 9;
       const foundCount = Object.keys(RE.Save.data.logsFound || {}).length;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: '❒  CODEX', sub: `${foundCount} fragments`, font: 'bold 16px monospace' })) game.openCodex('title');
-      by += bh + 10;
-      if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: (RE.Audio.muted ? '🔇  SOUND: OFF' : '🔊  SOUND: ON'), font: 'bold 15px monospace' })) { const m = RE.Audio.toggleMute(); RE.Save.data.settings.muted = m; RE.Save.save(); }
+      by += bh + 9;
+      if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: (RE.Audio.muted ? '🔇  SOUND: OFF' : '🔊  SOUND: ON'), font: 'bold 14px monospace' })) { const m = RE.Audio.toggleMute(); RE.Save.data.settings.muted = m; RE.Save.save(); }
 
       // stats footer
       ctx.font = '12px monospace'; ctx.fillStyle = 'rgba(150,180,210,0.55)';

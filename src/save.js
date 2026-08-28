@@ -15,6 +15,8 @@
       unlocks: {},        // meta unlock id -> true
       logsFound: {},      // log id -> true
       milestones: {},     // first-reach depth milestones -> true
+      daily: null,        // { date, best, sector } for the daily seed
+      clears: 0,
       settings: { muted: false, screenShake: 1, showFps: false },
       seenIntro: false,
     };

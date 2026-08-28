@@ -4,6 +4,14 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.2.0] — Content Update: Daily Seed
+A shared, deterministic run of the day, with a per-day personal best.
+
+### Added
+- **Daily Run** — one seed derived from the UTC date, so everyone descends the
+  same Hollow that day. Score is tracked as a per-day best on the title screen,
+  and the run tags its seed in the HUD for comparison.
+
 ## [1.1.0] — Content Update: New Modules
 Four new drop-pool modules, each introducing a fresh engine capability.
 

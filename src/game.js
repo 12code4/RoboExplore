@@ -56,9 +56,17 @@
     },
 
     // ---- Run lifecycle -------------------------------------------------
-    startRun() {
+    _dailyKey() {
+      try { const d = new Date(); return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0'); }
+      catch (e) { return 'daily'; }
+    },
+
+    startRun(opts) {
+      opts = opts || {};
       RE.Audio.resume();
-      this.seed = RE.RNG.randomSeed();
+      this.daily = !!opts.daily;
+      if (this.daily) { this.dailyKey = this._dailyKey(); this.seed = RE.RNG.hashSeed('roboexplore-daily:' + this.dailyKey); }
+      else this.seed = RE.RNG.randomSeed();
       this.rng = RE.RNG.make(this.seed);
       this.sector = 1;
       this.salvage = 0; this.runShards = 0; this.score = 0; this.kills = 0;
@@ -254,9 +262,15 @@
       }
       this.runShards += milestoneBonus;
       this.score += this.sector * 100 + this.kills * 10;
-      this.runStats = { sector: this.sector, kills: this.kills, score: this.score, shards: this.runShards };
+      this.runStats = { sector: this.sector, kills: this.kills, score: this.score, shards: this.runShards, daily: this.daily };
       RE.Save.addShards(this.runShards);
       RE.Save.recordRun({ sector: this.sector, score: this.score, kills: this.kills });
+      if (this.daily) {
+        const d = RE.Save.data.daily;
+        if (!d || d.date !== this.dailyKey) RE.Save.data.daily = { date: this.dailyKey, best: this.score, sector: this.sector };
+        else if (this.score > d.best) { d.best = this.score; d.sector = this.sector; }
+        RE.Save.save();
+      }
       RE.Audio.stopMusic();
       this.state = 'dead';
     },
