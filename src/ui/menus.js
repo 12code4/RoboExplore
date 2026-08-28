@@ -126,6 +126,10 @@
       by += bh + 10;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: (RE.Audio.muted ? 'SOUND: OFF' : 'SOUND: ON'), font: 'bold 15px monospace' })) { const m = RE.Audio.toggleMute(); RE.Save.data.settings.muted = m; RE.Save.save(); }
       by += bh + 10;
+      const sk = RE.Save.data.settings.screenShake; const skv = sk != null ? sk : 1;
+      const skLabel = skv >= 1 ? 'SCREEN SHAKE: FULL' : skv > 0 ? 'SCREEN SHAKE: LOW' : 'SCREEN SHAKE: OFF';
+      if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: skLabel, font: 'bold 14px monospace' })) { RE.Save.data.settings.screenShake = skv >= 1 ? 0.5 : skv > 0 ? 0 : 1; RE.Save.save(); }
+      by += bh + 10;
       if (this.button(ctx, game, { x: bx, y: by, w: bw, h: bh, label: 'ABANDON RUN', sub: 'return to title' })) game.abandonRun();
       // current loadout summary
       this._loadoutSummary(ctx, game, W / 2, by + bh + 30);

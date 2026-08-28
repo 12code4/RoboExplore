@@ -751,7 +751,8 @@
 
     _renderWorld(ctx) {
       const cam = this.camera;
-      const shake = cam.shakeOffset(CFG.camera.maxShake * (RE.Save.data.settings.screenShake || 1));
+      const shakeMul = RE.Save.data.settings.screenShake != null ? RE.Save.data.settings.screenShake : 1;
+      const shake = cam.shakeOffset(CFG.camera.maxShake * shakeMul);
       ctx.save();
       ctx.translate(shake.x, shake.y);
       const camX = cam.x, camY = cam.y;
