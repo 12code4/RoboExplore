@@ -272,9 +272,16 @@
             ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(this.tele.aim) * 400, Math.sin(this.tele.aim) * 400); ctx.stroke();
           } else if (this.tele.type === 'sweep' || this.tele.type === 'gaze') {
             const atk = this.tele.data, len = atk.len || 320, arc = atk.arc || 0.32, ang = this.tele.beamAngle;
+            const flick = 0.18 + 0.12 * Math.sin(k * 22);
             ctx.globalCompositeOperation = 'lighter';
-            ctx.fillStyle = RE.M.rgba(this.glow, 0.1 + 0.06 * Math.sin(k * 20));
+            ctx.fillStyle = RE.M.rgba(this.glow, flick);
             ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, len, ang - arc / 2, ang + arc / 2); ctx.closePath(); ctx.fill();
+            // bright edges so the beam's path reads clearly
+            ctx.strokeStyle = RE.M.rgba('#ffffff', 0.5 + 0.3 * Math.sin(k * 22)); ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(0, 0); ctx.lineTo(Math.cos(ang - arc / 2) * len, Math.sin(ang - arc / 2) * len);
+            ctx.moveTo(0, 0); ctx.lineTo(Math.cos(ang + arc / 2) * len, Math.sin(ang + arc / 2) * len);
+            ctx.stroke();
             ctx.globalCompositeOperation = 'source-over';
           }
         }
