@@ -543,6 +543,17 @@
       this._updateBossBeams(dt * eScale);
       this._checkExit();
 
+      // Biome ambient motes — only in the biomes that carry ambient glow, so
+      // the honest-dark biomes keep their tension. (Cosmetic; Math.random, not
+      // the run RNG.)
+      const ambient = this.biome.id === 'marrow' || this.biome.id === 'hollows';
+      if (ambient && Math.random() < 0.3) {
+        const cam = this.camera, ax = cam.x + Math.random() * CFG.viewW, ay = cam.y + Math.random() * CFG.viewH;
+        const marrow = this.biome.id === 'marrow';
+        const vy = marrow ? (-28 - Math.random() * 22) : (Math.random() - 0.5) * 8;
+        RE.Particles.emit({ x: ax, y: ay, vx: (Math.random() - 0.5) * 10, vy, life: 1.4 + Math.random(), size: 1.3, color: this.biome.palette.accent, drag: 0.6, glow: true, kind: 'dot' });
+      }
+
       RE.Particles.update(dt);
       // Keep the player centered (no hard bounds clamp) — the dark void beyond
       // the map border is invisible, and centering reads far better. Lead the
