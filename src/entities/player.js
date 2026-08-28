@@ -86,8 +86,10 @@
         this.lightOuter = CFG.player.lightOuter * s.lightOuterMul;
         this.hull = Math.min(this.hull, this.hullMax);
         this.energy = Math.min(this.energy, this.energyMax);
-        if (s.bulwark > 0) this.bulwarkShield = s.bulwark;   // full on equip
-        else this.bulwarkShield = 0;
+        // Fill the Bulwark shield only when it's newly equipped; otherwise
+        // clamp the existing charge to the (possibly new) max.
+        if (s.bulwark > 0) { this.bulwarkShield = this._hadBulwark ? Math.min(this.bulwarkShield, s.bulwark) : s.bulwark; this._hadBulwark = true; }
+        else { this.bulwarkShield = 0; this._hadBulwark = false; }
       },
 
       weaponDef() { return this.stats.weapon || DEFAULT_WEAPON; },
@@ -273,30 +275,31 @@
       damage(amt, source, game) {
         if (this.iframes > 0) return false;
         if (CFG.debug && CFG.debug.invincible) return false;
-        // Deflector shield: block frontal
-        if (this.shieldActive && source && source.x != null) {
+        // Deflector shield: block frontal (kinetic — does not stop environmental hazards)
+        if (this.shieldActive && source && source.x != null && !source.hazard) {
           const ang = Math.atan2(source.y - this.y, source.x - this.x);
           const diff = Math.abs(M.angleDiff(this.facing, ang));
           if (diff < 1.22) { // ~140deg arc (±70deg)
             this.spend(5);
             Particles.burst(this.x + Math.cos(ang) * this.radius, this.y + Math.sin(ang) * this.radius, 6,
               { speed: 160, color: '#6cf', life: 0.3, size: 2.5, dir: ang + Math.PI, spread: 1, kind: 'spark' });
-            return false;
+            return true;   // handled: consume the incoming projectile
           } else amt *= 0.6;
         }
         amt *= this.stats.armorMul;
-        // Bulwark Field: rechargeable bubble absorbs before hull.
-        if (this.stats.bulwark > 0 && this.bulwarkShield > 0) {
-          this.bulwarkTimer = this.stats.bulwarkRegenDelay;
-          if (this.bulwarkShield >= amt) {
-            this.bulwarkShield -= amt;
-            this.iframes = Math.max(this.iframes, 0.2);
-            RE.Audio.sfx('shield'); game.screenFlash('#6cf', 0.12, 0.15);
-            Particles.burst(this.x, this.y, 8, { speed: 180, color: '#6cf', life: 0.3, size: 2.5, kind: 'spark' });
-            game.camera.addTrauma(0.15);
-            return false;
+        // Bulwark Field: rechargeable bubble absorbs before hull (not vs hazards).
+        if (this.stats.bulwark > 0 && !(source && source.hazard)) {
+          this.bulwarkTimer = this.stats.bulwarkRegenDelay;   // any hit delays reform
+          if (this.bulwarkShield > 0) {
+            if (this.bulwarkShield >= amt) {
+              this.bulwarkShield -= amt;
+              RE.Audio.sfx('shield'); game.screenFlash('#6cf', 0.12, 0.15);
+              Particles.burst(this.x, this.y, 8, { speed: 180, color: '#6cf', life: 0.3, size: 2.5, kind: 'spark' });
+              game.camera.addTrauma(0.15);
+              return true;   // handled: consume the projectile, no i-frame freebie
+            }
+            amt -= this.bulwarkShield; this.bulwarkShield = 0; RE.Audio.sfx('shield_break');
           }
-          amt -= this.bulwarkShield; this.bulwarkShield = 0; RE.Audio.sfx('shield_break');
         }
         // Core Vent: lethal-save once per sector
         if (this.stats.coreVent && !this.stats.coreVentUsed && amt >= this.hull) {
@@ -446,10 +449,14 @@
           if (this.speed < 16) this._stillT = (this._stillT || 0) + dt; else this._stillT = 0;
           if (this._stillT > 2.5) {
             this.overheating = true;
-            const rate = 1.5 * (1 + (this._stillT - 2.5) * 0.35);
-            this.hull -= rate * dt;
             if (Math.random() < 0.3) Particles.emit({ x: this.x + (Math.random() - 0.5) * 18, y: this.y - 8, vx: 0, vy: -46, life: 0.5, size: 3, color: '#ff6a2a', drag: 1, kind: 'dot' });
-            if (this.hull <= 0) { this.hull = 0; this.die(game); }
+            // i-frames (dash, and the reboot grace) protect against overheat —
+            // prevents an undodgeable death-loop after Emergency Reboot.
+            if (this.iframes <= 0) {
+              const rate = 1.5 * (1 + (this._stillT - 2.5) * 0.35);
+              this.hull -= rate * dt;
+              if (this.hull <= 0) { this.hull = 0; this.die(game); }
+            }
           }
         } else this._stillT = 0;
       },

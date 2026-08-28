@@ -325,9 +325,10 @@
       const bw = 190, bh = 40, by = cy + ch + 26;
       const repairCost = 20 + st.stock.repairUses * 10;
       const gx = (W - (bw * 4 + 30)) / 2;
-      if (this.button(ctx, game, { x: gx, y: by, w: bw, h: bh, label: 'REPAIR +30', sub: `◈ ${repairCost}`, font: 'bold 14px monospace' })) game.stationRepair();
+      const fullHull = game.player && game.player.hull >= game.player.hullMax;
+      if (this.button(ctx, game, { x: gx, y: by, w: bw, h: bh, label: 'REPAIR +30', sub: `◈ ${repairCost}`, font: 'bold 14px monospace', disabled: game.salvage < repairCost || fullHull })) game.stationRepair();
       if (this.button(ctx, game, { x: gx + bw + 10, y: by, w: bw, h: bh, label: st.stock.refillUsed ? 'ENERGY: TAPPED' : 'ENERGY TAP', sub: st.stock.refillUsed ? '' : 'free refill', font: 'bold 14px monospace', disabled: st.stock.refillUsed })) game.stationRefill();
-      if (this.button(ctx, game, { x: gx + (bw + 10) * 2, y: by, w: bw, h: bh, label: 'REROLL STOCK', sub: '◈ 12', font: 'bold 14px monospace' })) game.stationReroll();
+      if (this.button(ctx, game, { x: gx + (bw + 10) * 2, y: by, w: bw, h: bh, label: 'REROLL STOCK', sub: '◈ 12', font: 'bold 14px monospace', disabled: game.salvage < 12 })) game.stationReroll();
       if (this.button(ctx, game, { x: gx + (bw + 10) * 3, y: by, w: bw, h: bh, label: 'LEAVE', font: 'bold 14px monospace' })) game.closeStation();
       this.end();
     },

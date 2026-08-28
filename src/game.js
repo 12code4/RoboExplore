@@ -209,14 +209,22 @@
       if (isThreshold || rng.next() < 0.35) {
         const pos = cell(gen.pickFeatureCell(8, 7));
         const st = RE.makePickup('station', pos.x, pos.y);
-        st.stock = { modules: this._rollModules(3), repairUses: 0, refillUsed: false };
+        // one stored, stateful stream per station: initial stock + every reroll
+        // draw sequentially from it, so a Daily seed reproduces the whole shop.
+        st.rollRng = this.rng.fork('station:' + n + ':' + Math.round(pos.x) + ':' + Math.round(pos.y));
+        st.stock = { modules: this._rollModules(3, st.rollRng), repairUses: 0, refillUsed: false };
         this.pickups.push(st);
       }
       // core-shard (deeper = likelier; guaranteed on threshold)
       if (isThreshold || rng.next() < 0.22 + n * 0.02) { const pos = cell(gen.pickFeatureCell(10, 6)); this.pickups.push(RE.makePickup('shard', pos.x, pos.y, { value: 1 })); }
-      // log fragment
-      const logs = RE.logsForBiome(biome.id).filter(l => !RE.Save.data.logsFound[l.id]);
-      if (logs.length && rng.next() < 0.6) { const pos = cell(gen.pickFeatureCell(7, 5)); const log = rng.pick(logs); this.pickups.push(RE.makePickup('log', pos.x, pos.y, { data: log })); }
+      // log fragment — roll from the FULL biome list (so RNG consumption is
+      // independent of which logs the player has found), gate only creation.
+      const allLogs = RE.logsForBiome(biome.id);
+      if (allLogs.length && rng.next() < 0.6) {
+        const pos = cell(gen.pickFeatureCell(7, 5));
+        const log = rng.pick(allLogs);
+        if (!RE.Save.data.logsFound[log.id]) this.pickups.push(RE.makePickup('log', pos.x, pos.y, { data: log }));
+      }
 
       // ---- Environmental hazards per biome ----
       if (biome.id === 'marrow') {          // lava rifts (permanent)
@@ -259,6 +267,7 @@
         this.player.hull = this.player.hullMax * 0.3;
         this.player.energy = this.player.energyMax;
         this.player.iframes = 2;
+        this.player._stillT = 0;   // restart overheat idle window so reboot grace holds
         RE.HUD.showBanner('EMERGENCY REBOOT', 'systems restored', 2);
         RE.Audio.sfx('shield');
         RE.Particles.burst(this.player.x, this.player.y, 30, { speed: 260, color: '#7affd1', life: 0.8, size: 3, kind: 'spark' });
@@ -358,7 +367,9 @@
       this.kills++;
       this.score += (e.def.danger || 1) * 5 * (e.elite ? 2 : 1);
       const [lo, hi] = e.def.salvage || [1, 3];
-      let n = this.rng ? this.rng.int(lo, hi) : lo;
+      // cosmetic drop count — uses Math.random so kills never advance the
+      // master stream (keeps Daily station/reward rolls reproducible).
+      let n = lo + Math.floor(Math.random() * (hi - lo + 1));
       if (e.elite) n = Math.round(n * 1.5);
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2, dd = Math.random() * 14;
@@ -381,8 +392,8 @@
         case 'salvage': { const v = Math.round(pickup.value * (this.salvageMul || 1)); this.salvage += v; this.score += v; break; }
         case 'energy': p.addEnergy(pickup.value); break;
         case 'hull': p.heal(pickup.value); RE.HUD.toast('+' + pickup.value + ' hull', { color: '#5affa0', life: 1.4 }); break;
-        case 'shard': { const b = Math.round(pickup.value * (this.salvageMul || 1)); this.runShards += pickup.value; this.score += pickup.value * 20; RE.HUD.toast('✦ core-shard recovered', { color: '#c0a0ff', life: 2.2, big: true }); break; }
-        case 'module': this.presentReward(this._rollModules(3), 'MODULE CACHE'); break;
+        case 'shard': { const b = Math.max(1, Math.round(pickup.value * (this.salvageMul || 1))); this.runShards += b; this.score += b * 20; RE.HUD.toast('✦ core-shard recovered', { color: '#c0a0ff', life: 2.2, big: true }); break; }
+        case 'module': this.presentReward(this._rollModules(3, this.rng.fork('modcache:' + this.sector + ':' + Math.round(pickup.x) + ':' + Math.round(pickup.y))), 'MODULE CACHE'); break;
         case 'log': this._collectLog(pickup.data); break;
         default: break;
       }
@@ -397,9 +408,11 @@
       RE.HUD.toast('“' + log.text + '”', { color: 'rgba(180,210,235,0.85)', life: 5 });
     },
 
-    _rollModules(count) {
-      const all = Object.values(RE.MODULES);
-      const rng = this.rng || RE.RNG.make(1);
+    // Draw from a supplied deterministic stream (never the master this.rng, so
+    // kills/rerolls can't desync a Daily). Excludes already-equipped modules.
+    _rollModules(count, rng) {
+      rng = rng || this.rng.fork('roll:' + (this._rollN = (this._rollN || 0) + 1));
+      const all = Object.values(RE.MODULES).filter(m => !(this.player && this.player.hasModule(m.id)));
       const rareBoost = RE.Save.data.unlocks.raredrops ? 1.5 : 1;
       const weights = { common: 5, uncommon: 3, rare: 1.4 * rareBoost, legendary: 0.6 * rareBoost };
       const chosen = [], bag = all.slice();
@@ -441,7 +454,10 @@
     },
     stationReroll() {
       if (this.salvage < 12) { RE.Audio.sfx('lowpower'); return; }
-      this.salvage -= 12; this.station.stock.modules = this._rollModules(3); RE.Audio.sfx('ui');
+      this.salvage -= 12;
+      const rng = this.station.rollRng || (this.station.rollRng = this.rng.fork('reroll:' + Math.round(this.station.x)));
+      this.station.stock.modules = this._rollModules(3, rng);
+      RE.Audio.sfx('ui');
     },
     stationBuy(def, idx) {
       const cost = { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60;
@@ -501,6 +517,9 @@
       else if (this.state === 'meta') { if (RE.Input.keyPressed('Escape')) this.closeMeta(); }
       else if (this.state === 'codex') { if (RE.Input.keyPressed('Escape')) this.closeCodex(); }
       else if (this.state === 'station') { if (RE.Input.keyPressed('Escape')) this.closeStation(); }
+      // consume the pause/close edges so a multi-substep frame can't re-fire
+      // them (e.g. Escape closing a station then also toggling the pause menu).
+      RE.Input._pressed['Escape'] = false; RE.Input._pressed['KeyP'] = false;
 
       if (this.state === 'playing') this._updatePlaying(dt);
       if (this.flashT > 0) this.flashT -= dt;
@@ -521,6 +540,8 @@
         if (this.echoDisabled && !this._empWas) { RE.Audio.sfx('boss'); RE.HUD.showBanner('EM SURGE', 'echo jammed', 1.4); this.camera.addTrauma(0.3); }
         this._empWas = this.echoDisabled;
       }
+      // Boss blackout (SIGHT STOLEN) jams echo BEFORE the player updates.
+      if (this.boss && this.boss.alive && this.boss._blackoutT > 0) this.echoDisabled = true;
 
       // release onboarding tips on a timer
       this._sectorT = (this._sectorT || 0) + dt;
@@ -540,6 +561,9 @@
       for (const pr of this.projectiles) if (pr.alive) pr.update(pr.friendly ? dt : dt * eScale, this);
       this._projectileCollisions();
       for (const pk of this.pickups) if (pk.alive) pk.update(dt, this);
+      // a collected pickup may have opened a reward/station screen — stop here
+      // so nothing else (station proximity, exit check) runs on a stale state.
+      if (this.state !== 'playing') { RE.Particles.update(dt); return; }
       this._nodeDocking(dt);
       this._stationProximity();
       this._pickupPings();
@@ -669,12 +693,13 @@
         h.tickCd -= dt;
         if (!h.permanent) { h.life -= dt; if (h.life <= 0) { this.hazards.splice(i, 1); continue; } }
         if (h.periodic) {
+          h.clock = (h.clock || 0) + dt;   // local clock (doesn't advance while paused)
           const cyc = h.periodic.on + h.periodic.off;
-          h.active = ((this.time + h.phase) % cyc) < h.periodic.on;
+          h.active = ((h.clock + h.phase) % cyc) < h.periodic.on;
         }
         if (h.active && p.alive && M.dist(h.x, h.y, p.x, p.y) < h.r + p.radius && h.tickCd <= 0) {
           h.tickCd = 0.5;
-          this.damagePlayer(h.dmg, { x: h.x, y: h.y });
+          this.damagePlayer(h.dmg, { x: h.x, y: h.y, hazard: true });   // not blockable by kinetic shields
         }
       }
     },

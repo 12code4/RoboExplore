@@ -4,6 +4,33 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.3.1] — Polish Pass A
+Feel, fairness, and correctness across the post-1.0 systems, plus fixes from a
+second adversarial multi-dimension code review (21 verified findings).
+
+### Added / Changed
+- Cinematic boss-death slow-motion + flash; descend whoosh; size-varied enemy
+  death sounds; biome ambient motes (Hollows/Marrow); reticle flares gold during
+  the Echo-Charge window; unmistakable pulsing danger-edges on hazards.
+- Accessibility: screen-shake toggle (Full/Low/Off) in the pause menu.
+
+### Fixed (review)
+- Boss telegraphs are now honest: slam/aimed commit to the telegraphed angle
+  instead of re-aiming at fire time; sweep beams show a wedge preview and never
+  hit on frame one; boss add-caps count only summoned adds; boss damage scales
+  with Deep Descent tiers; the dead boss dmgMul formula now works.
+- Daily runs are reproducible: the module/station/reroll economy draws from
+  dedicated deterministic streams instead of the master RNG (kills no longer
+  desync a shared seed); log rolls are save-independent.
+- Marrow overheat no longer bypasses the Emergency Reboot grace (no death-loop);
+  environmental hazards ignore kinetic shields; periodic hazards use a local
+  clock so they do not tick untelegraphed after a pause.
+- Bulwark Field no longer grants free i-frames per hit, refills only when newly
+  equipped, delays its reform on any hit, and consumes the projectile it blocks.
+- Boss blackout now actually jams the player echo; core-shards honor the reward
+  multiplier; a station Escape no longer also opens the pause menu; stations no
+  longer offer already-equipped modules; unaffordable station buttons disable.
+
 ## [1.3.0] — Content Update: The Deep Descent (New Game+)
 Escalating optional difficulty for players who have reached the Core.
 

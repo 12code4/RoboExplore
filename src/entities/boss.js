@@ -18,7 +18,7 @@
       name: def.name, x, y, vx: 0, vy: 0,
       r: def.radius, color: def.color, glow: def.glow,
       hp: def.hp, maxHp: def.hp, sector,
-      dmgMul: 1 + (sector - 15) * 0.02 > 0 ? 1 : 1,
+      dmgMul: Math.max(1, 1 + (sector - 15) * 0.02),
       phaseIndex: 0, phase: def.phases[0],
       facing: 0, hitFlash: 0, marked: 0, vis: 1, awake: true, elite: false,
       attackCd: 1.2, atkIndex: 0,
@@ -93,11 +93,14 @@
           this.addTimer -= dt;
           if (this.addTimer <= 0) {
             this.addTimer = this.phase.adds.every;
-            const alive = game.enemies.filter(e => e !== this && e.alive).length;
+            // count only THIS boss's summoned adds, not the whole arena
+            const alive = game.enemies.filter(e => e.isBossAdd && e.alive).length;
             if (alive < (this.phase.adds.cap || 4)) {
               for (let i = 0; i < this.phase.adds.count; i++) {
                 const a = Math.random() * TAU, rr = 120 + Math.random() * 80;
-                game.enemies.push(RE.makeEnemy(this.phase.adds.id, this.x + Math.cos(a) * rr, this.y + Math.sin(a) * rr, this.sector, false));
+                const add = game._scaleEnemy(RE.makeEnemy(this.phase.adds.id, this.x + Math.cos(a) * rr, this.y + Math.sin(a) * rr, this.sector, false));
+                add.isBossAdd = true;
+                game.enemies.push(add);
               }
             }
           }
@@ -123,8 +126,8 @@
           if (rg.r > rg.max) this.rings.splice(i, 1);
         }
 
-        // blackout upkeep
-        if (this._blackoutT > 0) { this._blackoutT -= dt; game.echoDisabled = true; if (this._blackoutT <= 0) game.echoDisabled = false; }
+        // blackout upkeep (game applies echoDisabled before the player updates)
+        if (this._blackoutT > 0) this._blackoutT -= dt;
 
         // contact damage
         if (d < this.r + p.radius && (this._contactCd = (this._contactCd || 0) - dt) <= 0) {
@@ -150,27 +153,27 @@
         const atk = atks[this.atkIndex % atks.length];
         this.atkIndex++;
         this.attackCd = atk.cd || 2.2;
-        // start telegraph
+        // start telegraph — commit the aim NOW so the tell is honest
         const dur = atk.tell != null ? atk.tell : 0.7;
+        const aimAtTell = this.facing;
         this.tele = {
           type: atk.type, t: 0, dur,
-          aim: this.facing,
+          aim: aimAtTell,
           data: atk,
-          exec: (g) => this._exec(atk, g, p),
+          exec: (g) => this._exec(atk, g, p, aimAtTell),
         };
-        if (atk.type === 'sweep' || atk.type === 'gaze') this.tele.beamAngle = this.facing;
+        if (atk.type === 'sweep' || atk.type === 'gaze') this.tele.beamAngle = aimAtTell;
       },
 
-      _exec(atk, game, p) {
-        const aim = Math.atan2(p.y - this.y, p.x - this.x);
+      _exec(atk, game, p, telAim) {
         switch (atk.type) {
           case 'radial': this._radial(game, atk.count, atk.speed, atk.dmg, atk.offset || 0); break;
-          case 'aimed': this._aimed(game, aim, atk.count, atk.speed, atk.dmg, atk.spread || 0.2); break;
+          case 'aimed': this._aimed(game, telAim, atk.count, atk.speed, atk.dmg, atk.spread || 0.2); break;
           case 'spiral': this._spiral(game, atk); break;
           case 'shockwave': this._shockwave(game, atk.max || 360, atk.speed || 300, atk.dmg || 18); break;
-          case 'slam': this._slam(game, aim, atk); break;
-          case 'sweep': this._sweep(game, atk); break;
-          case 'gaze': this._sweep(game, atk); break;
+          case 'slam': this._slam(game, telAim, atk); break;
+          case 'sweep': this._sweep(game, atk, telAim); break;
+          case 'gaze': this._sweep(game, atk, telAim); break;
           case 'blackout': this._blackout(game, atk); break;
           case 'supernova': this._supernova(game, atk); break;
           default: break;
@@ -214,15 +217,14 @@
         const res = game.map.collideCircle(this.x, this.y, this.r); this.x = res.x; this.y = res.y;
         this._shockwave(game, atk.max || 300, atk.speed || 320, atk.dmg || 20);
       },
-      _sweep(game, atk) {
-        // spawn a rotating beam that lives for a duration as a temporary object
+      _sweep(game, atk, telAim) {
+        // spawn a rotating beam; start at the telegraphed angle with a short
+        // grace (tick 0.2) so it never hits on its first frame.
         game.bossBeams = game.bossBeams || [];
-        game.bossBeams.push({ boss: this, x: this.x, y: this.y, angle: this.tele ? this.tele.beamAngle : this.facing, len: atk.len || 320, arc: atk.arc || 0.32, rot: atk.rot || 1.0, life: atk.dur || 3, t: 0, dmg: (atk.dmg || 8) * this.dmgMul, color: this.glow, tick: 0 });
+        game.bossBeams.push({ boss: this, x: this.x, y: this.y, angle: telAim != null ? telAim : this.facing, len: atk.len || 320, arc: atk.arc || 0.32, rot: atk.rot || 1.0, life: atk.dur || 3, t: 0, dmg: (atk.dmg || 8) * this.dmgMul, color: this.glow, tick: 0.2 });
       },
       _blackout(game, atk) {
-        this._blackoutT = atk.dur || 4;
-        game.echoDisabled = true;
-        this.player_energyDrain = true;
+        this._blackoutT = atk.dur || 4;   // game applies echoDisabled from this
         game.player.energy = Math.min(game.player.energy, atk.drainTo != null ? atk.drainTo : game.player.energy);
         RE.HUD.showBanner('SIGHT STOLEN', '', 1.4);
         RE.Audio.sfx('boss');
@@ -268,6 +270,12 @@
           if (this.tele.type === 'aimed' || this.tele.type === 'slam') {
             ctx.strokeStyle = RE.M.rgba(this.glow, 0.5); ctx.lineWidth = 2;
             ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(this.tele.aim) * 400, Math.sin(this.tele.aim) * 400); ctx.stroke();
+          } else if (this.tele.type === 'sweep' || this.tele.type === 'gaze') {
+            const atk = this.tele.data, len = atk.len || 320, arc = atk.arc || 0.32, ang = this.tele.beamAngle;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = RE.M.rgba(this.glow, 0.1 + 0.06 * Math.sin(k * 20));
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, len, ang - arc / 2, ang + arc / 2); ctx.closePath(); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
           }
         }
 
