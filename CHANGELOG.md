@@ -4,6 +4,19 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.1.0] — Content Update: New Modules
+Four new drop-pool modules, each introducing a fresh engine capability.
+
+### Added
+- **Homing Swarm** (weapon) — fires seeking micro-missiles that hunt the nearest
+  foe in the dark.
+- **Bulwark Field** (defense) — a rechargeable omni-directional bubble that
+  absorbs damage from any angle, then reforms.
+- **Chrono Dilate** (mobility) — dashing briefly slows enemies, enemy fire, and
+  boss beams while you move at full speed: dodge into bullet-time.
+- **Echo Nova** (utility) — your echo pulse also detonates, dealing a damaging
+  shockwave with knockback around you.
+
 ## [1.0.0] — Release 🚀
 The complete game: a full descent from the Drowned Intake to the Hollow Heart.
 

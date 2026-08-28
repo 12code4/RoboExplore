@@ -26,6 +26,8 @@
       splashDmg: opts.splashDmg || 0,
       knockback: opts.knockback || 0,
       beam: !!opts.beam,
+      homing: !!opts.homing,
+      homTurn: opts.homTurn || 4,
       hitSet: null,
       trail: 0,
       onExpire: opts.onExpire || null,
@@ -34,6 +36,18 @@
       update(dt, game) {
         this.life += dt;
         if (this.life >= this.maxLife) { this.alive = false; if (this.onExpire) this.onExpire(); return; }
+        // homing: steer toward the nearest living enemy
+        if (this.homing && this.friendly && game.enemies) {
+          let best = null, bd = 1e9;
+          for (const e of game.enemies) { if (!e.alive) continue; const dd = (e.x - this.x) * (e.x - this.x) + (e.y - this.y) * (e.y - this.y); if (dd < bd) { bd = dd; best = e; } }
+          if (best) {
+            const desired = Math.atan2(best.y - this.y, best.x - this.x);
+            const cur = Math.atan2(this.vy, this.vx);
+            const na = RE.M.rotateToward(cur, desired, this.homTurn * dt);
+            const sp = Math.hypot(this.vx, this.vy);
+            this.vx = Math.cos(na) * sp; this.vy = Math.sin(na) * sp;
+          }
+        }
         const nx = this.x + this.vx * dt, ny = this.y + this.vy * dt;
         if (game.map.isWallPx(nx, ny)) {
           if (this.bounce > 0) {

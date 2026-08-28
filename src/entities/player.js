@@ -22,6 +22,9 @@
       momentumRegen: false, momentumSpeed: 120, momentumBonus: 10,
       shieldHold: false, retaliate: 0, retaliateStun: 0.4, retaliateEnergy: 8,
       coreVent: false, coreVentUsed: false,
+      // v1.1 modules
+      echoNova: 0, chronoDilate: false,
+      bulwark: 0, bulwarkRegenDelay: 4, bulwarkRegen: 18,
       echoDamage: 0, echoBuffDamage: 0, echoBuffTime: 0,   // Resonant Cannon
       weapon: null,   // override weapon config; null => default Rivet Driver
     };
@@ -52,6 +55,7 @@
       surgeCharge: 0, weaponCharge: 0, charging: false,
       shieldActive: false, shieldAngle: 0,
       barrierTimer: 0,
+      bulwarkShield: 0, bulwarkTimer: 0,
       thruster: 0, walkCycle: 0,
       modules: { weapon: null, mobility: null, utility: null, defense: null },
       stats: baseStats(),
@@ -82,6 +86,8 @@
         this.lightOuter = CFG.player.lightOuter * s.lightOuterMul;
         this.hull = Math.min(this.hull, this.hullMax);
         this.energy = Math.min(this.energy, this.energyMax);
+        if (s.bulwark > 0) this.bulwarkShield = s.bulwark;   // full on equip
+        else this.bulwarkShield = 0;
       },
 
       weaponDef() { return this.stats.weapon || DEFAULT_WEAPON; },
@@ -102,6 +108,7 @@
         const cost = CFG.player.dashCost + this.stats.dashCostAdd;
         if (this.energy < cost) { RE.Audio.sfx('lowpower'); game.flashEnergy(); return; }
         this.spend(cost);
+        if (this.stats.chronoDilate) game.triggerChrono(0.9);
         const mv = RE.Input.moveVector();
         const ang = mv.len > 0.1 ? Math.atan2(mv.y, mv.x) : this.facing;
         this.dashDirX = Math.cos(ang); this.dashDirY = Math.sin(ang);
@@ -176,6 +183,17 @@
         // Resonant Cannon buff window
         if (this.stats.echoBuffDamage) this.stats.echoBuffTime = 1.6;
         game.onPulse(this.x, this.y, maxR);
+        // Echo Nova: the pulse detonates for AoE damage + knockback.
+        if (this.stats.echoNova > 0) {
+          const R = 155;
+          for (const e of game.enemies) {
+            if (!e.alive) continue;
+            const d = M.dist(this.x, this.y, e.x, e.y);
+            if (d < R) { const a = Math.atan2(e.y - this.y, e.x - this.x); e.takeDamage(this.stats.echoNova * (1 - d / R * 0.4), Math.cos(a) * 260, Math.sin(a) * 260, game); }
+          }
+          Particles.burst(this.x, this.y, 18, { speed: 320, color: '#8ef', life: 0.45, size: 3, kind: 'spark' });
+          game.camera.addTrauma(0.2);
+        }
         RE.Audio.sfx('echo');
         Particles.ring(this.x, this.y, { color: '#8ef', size: 18, life: 0.5 });
       },
@@ -222,6 +240,7 @@
             life: w.life, color: w.color, friendly: true,
             pierce: (w.pierce || 0) + bonusPierce, bounce: w.bounce || 0,
             illuminate: w.illuminate || 0, splash, splashDmg, knockback: knock,
+            homing: w.homing, homTurn: w.homTurn,
           });
         }
         Particles.burst(this.x + Math.cos(this.facing) * this.radius, this.y + Math.sin(this.facing) * this.radius,
@@ -266,6 +285,19 @@
           } else amt *= 0.6;
         }
         amt *= this.stats.armorMul;
+        // Bulwark Field: rechargeable bubble absorbs before hull.
+        if (this.stats.bulwark > 0 && this.bulwarkShield > 0) {
+          this.bulwarkTimer = this.stats.bulwarkRegenDelay;
+          if (this.bulwarkShield >= amt) {
+            this.bulwarkShield -= amt;
+            this.iframes = Math.max(this.iframes, 0.2);
+            RE.Audio.sfx('shield'); game.screenFlash('#6cf', 0.12, 0.15);
+            Particles.burst(this.x, this.y, 8, { speed: 180, color: '#6cf', life: 0.3, size: 2.5, kind: 'spark' });
+            game.camera.addTrauma(0.15);
+            return false;
+          }
+          amt -= this.bulwarkShield; this.bulwarkShield = 0; RE.Audio.sfx('shield_break');
+        }
         // Core Vent: lethal-save once per sector
         if (this.stats.coreVent && !this.stats.coreVentUsed && amt >= this.hull) {
           this.stats.coreVentUsed = true;
@@ -325,6 +357,11 @@
         if (this.energyDelay > 0) this.energyDelay -= dt;
         if (this.retaliateCd > 0) this.retaliateCd -= dt;
         if (this.energyFlash > 0) this.energyFlash -= dt;
+        // Bulwark Field recharge.
+        if (this.stats.bulwark > 0 && this.bulwarkShield < this.stats.bulwark) {
+          this.bulwarkTimer -= dt;
+          if (this.bulwarkTimer <= 0) this.bulwarkShield = Math.min(this.stats.bulwark, this.bulwarkShield + this.stats.bulwarkRegen * dt);
+        }
         this.sincePulse += dt; this.sinceFire += dt;
         if (this.stats.echoBuffTime > 0) this.stats.echoBuffTime -= dt;
 
@@ -440,6 +477,13 @@
           ctx.beginPath();
           ctx.arc(0, 0, this.radius + 8, this.shieldAngle - 1.22, this.shieldAngle + 1.22);
           ctx.stroke();
+        }
+        // Bulwark bubble.
+        if (this.stats.bulwark > 0 && this.bulwarkShield > 0) {
+          const frac = this.bulwarkShield / this.stats.bulwark;
+          ctx.strokeStyle = RE.M.rgba('#6cf', 0.25 + 0.4 * frac);
+          ctx.lineWidth = 2 + 2 * frac;
+          ctx.beginPath(); ctx.arc(0, 0, this.radius + 9, 0, Math.PI * 2); ctx.stroke();
         }
 
         // charge indicator (rail)

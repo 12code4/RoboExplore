@@ -33,6 +33,11 @@
       desc: 'Every 5th shot SURGES: big damage, splash, knockback. Rewards aggression.',
       apply: (s) => { s.weapon = { name: 'Siege Capacitor', damage: 9, fireRate: 6, count: 1, spread: 0.05, speed: 640, life: 0.6, radius: 4, energy: 4, color: '#ffb14a', surgeEvery: 5, surgeDamage: 34, surgeEnergy: 14, splash: 44, splashDamage: 16, knockback: 200, illuminate: 14 }; },
     },
+    'w-swarm': {   // v1.1 content update
+      id: 'w-swarm', name: 'Homing Swarm', slot: 'weapon', rarity: 'rare',
+      desc: 'Fires seeking micro-missiles that hunt the nearest foe in the dark.',
+      apply: (s) => { s.weapon = { name: 'Homing Swarm', damage: 7, fireRate: 3.2, count: 2, spread: 0.5, speed: 300, life: 1.7, radius: 3, energy: 3, color: '#ff9adf', homing: true, homTurn: 4.5, illuminate: 16 }; },
+    },
 
     // ============ MOBILITY ============
     'm-servos': {
@@ -54,6 +59,11 @@
       id: 'm-momentum', name: 'Momentum Cells', slot: 'mobility', rarity: 'uncommon',
       desc: 'Move fast: +10 regen and no post-spend delay. Refuel mid-fight.',
       apply: (s) => { s.momentumRegen = true; },
+    },
+    'm-chrono': {   // v1.1 content update
+      id: 'm-chrono', name: 'Chrono Dilate', slot: 'mobility', rarity: 'legendary',
+      desc: 'Dashing briefly slows everything but you — dodge into bullet-time.',
+      apply: (s) => { s.chronoDilate = true; },
     },
 
     // ============ UTILITY ============
@@ -82,6 +92,11 @@
       desc: 'Echo/light MARKS foes 3.5s: +30% damage, outlined even in the dark.',
       apply: (s) => { s.markFromEcho = true; s.markDur = 3.5; },
     },
+    'u-nova': {   // v1.1 content update
+      id: 'u-nova', name: 'Echo Nova', slot: 'utility', rarity: 'legendary',
+      desc: 'Your echo pulse also detonates: a damaging shockwave that flings foes back.',
+      apply: (s) => { s.echoNova = 26; },
+    },
 
     // ============ DEFENSE ============
     'd-deflector': {
@@ -103,6 +118,11 @@
       id: 'd-corevent', name: 'Core Vent', slot: 'defense', rarity: 'legendary',
       desc: 'Once/sector: a lethal hit leaves you at 1 hull, venting all energy as a nuke.',
       apply: (s) => { s.coreVent = true; },
+    },
+    'd-bulwark': {   // v1.1 content update
+      id: 'd-bulwark', name: 'Bulwark Field', slot: 'defense', rarity: 'rare',
+      desc: 'A rechargeable bubble absorbs damage from any direction, then reforms.',
+      apply: (s) => { s.bulwark = 45; s.bulwarkRegenDelay = 4; s.bulwarkRegen = 18; },
     },
   };
 

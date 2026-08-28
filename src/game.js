@@ -116,6 +116,7 @@
       this._empT = 9; this._empWas = false; this.echoDisabled = false;  // first EM surge ~6s after entry
       this.bossBeams = [];
       this._reclaimT = 0; this._reclaimWarned = false;
+      this.chronoT = 0; this.enemyTimeScale = 1;
       RE.Particles.clear();
 
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
@@ -274,6 +275,8 @@
     flashEnergy() { if (this.player) this.player.energyFlash = 0.3; },
 
     screenFlash(color, amt, dur) { this.flashColor = color; this.flashAmt = amt || 0.25; this.flashT = dur || 0.25; this.flashMax = this.flashT; },
+
+    triggerChrono(dur) { this.chronoT = Math.max(this.chronoT || 0, dur); },
 
     dischargePulse(x, y, dmg, radius, stun) {
       radius = radius || 130;
@@ -481,18 +484,23 @@
         RE.HUD.toast(this._introTips.shift().text, { life: 5.5, color: 'rgba(180,225,255,0.92)' });
       }
 
+      // Chrono Dilate: slow enemies/enemy shots/boss beams, not the player.
+      if (this.chronoT > 0) { this.chronoT -= dt; this.enemyTimeScale = this.chronoT > 0 ? 0.35 : 1; }
+      else this.enemyTimeScale = 1;
+      const eScale = this.enemyTimeScale;
+
       RE.Echo.update(dt, p);
       p.update(dt, this);
 
-      for (const e of this.enemies) if (e.alive) e.update(dt, this);
-      for (const pr of this.projectiles) if (pr.alive) pr.update(dt, this);
+      for (const e of this.enemies) if (e.alive) e.update(dt * eScale, this);
+      for (const pr of this.projectiles) if (pr.alive) pr.update(pr.friendly ? dt : dt * eScale, this);
       this._projectileCollisions();
       for (const pk of this.pickups) if (pk.alive) pk.update(dt, this);
       this._nodeDocking(dt);
       this._stationProximity();
       this._pickupPings();
       this._updateHazards(dt);
-      this._updateBossBeams(dt);
+      this._updateBossBeams(dt * eScale);
       this._checkExit();
 
       RE.Particles.update(dt);
@@ -674,6 +682,8 @@
         this._vignette.addColorStop(1, 'rgba(0,0,0,0.55)');
       }
       ctx.fillStyle = this._vignette; ctx.fillRect(0, 0, W, H);
+      // Chrono Dilate tint.
+      if (this.enemyTimeScale < 0.9 && this.state === 'playing') { ctx.fillStyle = 'rgba(90,150,255,0.07)'; ctx.fillRect(0, 0, W, H); }
       RE.HUD.render(ctx, this);
       // full-screen hurt/impact flash
       if (this.flashT > 0 && this.flashMax > 0) {
