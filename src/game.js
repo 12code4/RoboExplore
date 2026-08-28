@@ -136,6 +136,7 @@
       this.bossBeams = [];
       this._reclaimT = 0; this._reclaimWarned = false;
       this.chronoT = 0; this.enemyTimeScale = 1; this._slowmoT = 0;
+      if (this._bossMusic) { RE.Audio.stopBossLayer(); this._bossMusic = false; }
       RE.Particles.clear();
 
       const ex = this.map.centerOfTile(gen.exit.x, gen.exit.y);
@@ -614,6 +615,8 @@
       let threat = 0;
       for (const e of this.enemies) if (e.awake && M.dist(e.x, e.y, p.x, p.y) < 360) threat++;
       RE.Audio.setMusicIntensity(this.boss && this.boss.alive ? 1 : M.clamp(threat / 5, 0, 1));
+      if (this.boss && this.boss.alive) { if (!this._bossMusic) { RE.Audio.startBossLayer(); this._bossMusic = true; } }
+      else if (this._bossMusic) { RE.Audio.stopBossLayer(); this._bossMusic = false; }
     },
 
     _nodeDocking(dt) {

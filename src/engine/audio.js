@@ -243,6 +243,7 @@
     },
 
     stopMusic() {
+      this.stopBossLayer();
       if (!this._music) return;
       const ctx = this.ctx;
       for (const v of this._music.voices) {
@@ -261,6 +262,33 @@
       if (this._music && this.musicBus) {
         this.musicBus.gain.setTargetAtTime(0.3 + x * 0.4, this.ctx.currentTime, 0.5);
       }
+    },
+
+    // A driving, pulsing bass layer for boss fights (added over the ambient bed).
+    startBossLayer() {
+      if (!this._ensure() || this._bossLayer || this.muted) return;
+      const ctx = this.ctx, bus = this.musicBus;
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 55;
+      const g = ctx.createGain(); g.gain.value = 0.0001;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240;
+      o.connect(f); f.connect(g); g.connect(bus); o.start();
+      g.gain.exponentialRampToValueAtTime(0.11, ctx.currentTime + 2);
+      // 2 Hz rhythmic pulse via a square LFO on the gain
+      const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 2;
+      const lfoG = ctx.createGain(); lfoG.gain.value = 0.06;
+      lfo.connect(lfoG); lfoG.connect(g.gain); lfo.start();
+      this._bossLayer = { o, g, lfo };
+    },
+    stopBossLayer() {
+      if (!this._bossLayer) return;
+      const ctx = this.ctx, { o, g, lfo } = this._bossLayer;
+      try {
+        g.gain.cancelScheduledValues(ctx.currentTime);
+        g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 1);
+        o.stop(ctx.currentTime + 1.1); lfo.stop(ctx.currentTime + 1.1);
+      } catch (e) {}
+      this._bossLayer = null;
     },
   };
 
