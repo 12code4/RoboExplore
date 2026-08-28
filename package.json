@@ -5,7 +5,8 @@
   "description": "A zero-dependency browser exploration roguelite built around Echo-Sight.",
   "scripts": {
     "test": "node tools/smoke-test.js",
-    "start": "echo \"Open index.html in a browser, or: npx serve .\""
+    "build": "node tools/build-standalone.js",
+    "start": "echo \"Open index.html (or the single-file roboexplore.html) in a browser\""
   },
   "devDependencies": {},
   "license": "MIT"

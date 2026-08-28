@@ -23,6 +23,10 @@ things living in it.
 Just open **`index.html`** in a browser. No build step, no server, no
 dependencies. (Or serve the folder with any static file server.)
 
+Prefer a **single portable file**? Open **`roboexplore.html`** — the whole game
+(all code, styling, procedural art, and synth audio) inlined into one file you
+can double-click or share. Rebuild it any time with `npm run build`.
+
 ### Controls
 
 | Action | Keys |
