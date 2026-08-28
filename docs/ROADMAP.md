@@ -6,17 +6,17 @@ verified by the headless smoke test.
 
 ## Milestones
 
-| Version | Milestone | Goal |
+| Version | Milestone | Status |
 | --- | --- | --- |
-| `0.1.0-slice` | **Vertical Slice** ✅ | Bootable core loop: prove Echo-Sight feels good. |
-| `0.5.0-alpha` | **1.0-Alpha** | The whole core loop, playable end to end: all core systems, full enemy/module rosters, biomes, bosses, meta-progression, story fragments. Feature-complete but rough. |
-| `0.9.0` | **Build-out & Polish** | New content, tuning, game feel, juice, accessibility, balance. Bring it up to release quality. |
-| `1.0.0` | **1.0 Release** 🚀 | Polished, complete, shippable. |
-| `1.1.0` | **Content Update 1** | New content drop. |
-| `1.2.0` | **Content Update 2** | New content drop. |
-| `1.3.0` | **Content Update 3** | New content drop. |
-| `1.3.x` | **Polish Pass A** | Post-content refinement. |
-| `1.3.y` | **Polish Pass B** | Final refinement. |
+| `0.1.0-slice` | **Vertical Slice** | ✅ Bootable Echo-Sight core loop |
+| `0.5.0-alpha` | **1.0-Alpha** | ✅ Feature-complete core loop, all systems |
+| — | **Build-out** | ✅ Bosses, stations, hazards, juice, endings |
+| `1.0.0` | **1.0 Release** 🚀 | ✅ Polished, complete, shippable |
+| `1.1.0` | **Content Update 1** | ✅ Four new modules |
+| `1.2.0` | **Content Update 2** | ✅ Daily Seed |
+| `1.3.0` | **Content Update 3** | ✅ The Deep Descent (New Game+) |
+| `1.3.x` | **Polish Pass A** | 🔧 Cinematics, accessibility, ambience, hazard clarity + adversarial review |
+| `1.3.y` | **Polish Pass B** | ⏳ Final refinement |
 
 ## Principles
 
