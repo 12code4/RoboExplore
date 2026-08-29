@@ -77,6 +77,38 @@
       }
     },
 
+    // Flashlight cone: wash tiles inside an angular wedge, occluded by walls so
+    // the beam actually stops at stone. `map` supplies line-of-sight.
+    washCone(x, y, ang, range, half, level, map) {
+      const { W, H, T, light, seen } = this;
+      const r2 = range * range;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const cosHalf = Math.cos(half);
+      const minTx = M.clamp(((x - range) / T) | 0, 0, W - 1);
+      const maxTx = M.clamp(((x + range) / T) | 0, 0, W - 1);
+      const minTy = M.clamp(((y - range) / T) | 0, 0, H - 1);
+      const maxTy = M.clamp(((y + range) / T) | 0, 0, H - 1);
+      for (let ty = minTy; ty <= maxTy; ty++) {
+        const cy = (ty + 0.5) * T - y;
+        for (let tx = minTx; tx <= maxTx; tx++) {
+          const cx = (tx + 0.5) * T - x;
+          const d2 = cx * cx + cy * cy;
+          if (d2 > r2 || d2 < 1) continue;
+          const d = Math.sqrt(d2);
+          if ((cx * ca + cy * sa) / d < cosHalf) continue;   // outside the wedge
+          // occlusion: sample just short of the tile so the near wall face lights
+          if (map && d > T * 0.7) {
+            const back = d - T * 0.6;
+            if (!map.hasLOS(x, y, x + (cx / d) * back, y + (cy / d) * back)) continue;
+          }
+          const i = ty * W + tx;
+          const lv = level * (1 - (d / range) * 0.65);
+          if (light[i] < lv) light[i] = lv;
+          seen[i] = 1;
+        }
+      }
+    },
+
     spawnPing(x, y, color) {
       // Cap concurrent pings for readability.
       if (this.pings.length > 40) this.pings.shift();

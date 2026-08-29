@@ -4,6 +4,42 @@ All notable changes to RoboExplore are documented here. This project uses a
 descent through milestones: vertical slice → **1.0-alpha** → **1.0** → post-1.0
 content & polish updates.
 
+## [1.4.0] — Content Update: The Carved Dark
+A big feature drop that reshapes sight, terrain, and the build economy.
+
+### Added
+- **Destructible walls.** Every wall now has (very high) HP and takes damage from
+  your fire. Damage bleeds a share to surrounding walls (up to two hops), and a
+  wall reduced to zero is **carved open into a permanent tunnel**. Undamaged-but-
+  hurt walls **regenerate** after a 15-second lull, so breaching takes sustained
+  fire. Walls read as a **dark rainbow** HP gauge — near-black when whole, tinting
+  through purple → blue → green → orange → red as they give.
+- **Flashlight.** Press **[F]** to toggle a steady directional cone that lights
+  the way and **drains your battery**. It bridges the gaps between pulses and
+  freezes light-fearing foes.
+- **Reworked echo pulse.** The pulse is now a rare, powerful sweep on an **8-second
+  cooldown** whose reveal **lingers ~5 seconds** — a deliberate tactical tool
+  rather than a spammed strobe.
+- **Fortified spawner nests.** New **Hive Node** spawners sit inside rings of
+  tough (destructible) fortress walls, pumping out minions until destroyed. Each
+  nest holds a **guaranteed upgrade cache** as the prize for breaching it.
+- **Stacking loadout.** Modules no longer overwrite by slot — you **accumulate an
+  arbitrary list of upgrades** and their effects compound. Only *direct conflicts*
+  swap (two primary guns, or two dash overrides); many upgrades **stack** (take a
+  duplicate to pile on). Reward and Reconstructor screens now offer **four**
+  choices, with new stackable parts (Overcharge, Breaker Rounds, Plating, Reserve
+  Cells, Grip Treads, Floodlight Rig, Lumen Plating, …).
+- **Generative, eerie music.** The static drone is replaced by a director that
+  strings ~20–40s instrumental phrases — music-box figures, inharmonic bells,
+  bowed pad swells, low tolls, and breathy whispers — in ever-varying order over a
+  biome-tuned drone bed, so the loop never repeats the same way.
+
+### Changed / Fixed
+- Homing Swarm micro-missiles now only seek foes within **short range** instead of
+  tracking across the whole map.
+- Deflector Shield is now held on **right-mouse** (or **[C]**), freeing **[F]** for
+  the flashlight.
+
 ## [1.3.2] — Polish Pass B
 Final refinement sweep.
 

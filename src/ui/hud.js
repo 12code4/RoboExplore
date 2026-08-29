@@ -75,11 +75,13 @@
       // Energy bar
       this._bar(ctx, bx, by + 22, 210, 14, enFrac, '#2db6ff', '#9fe4ff', 'ENERGY', Math.ceil(p.energy) + '/' + p.energyMax);
 
-      // Echo cooldown pip
-      const echoFrac = 1 - M.clamp(p.echoCd / RE.CFG.player.echoCooldown, 0, 1);
+      // Echo cooldown pip (now a long, deliberate recharge)
+      const echoFrac = 1 - M.clamp(p.echoCd / (RE.CFG.player.echoCooldown + p.stats.echoCdAdd), 0, 1);
       this._pip(ctx, bx + 232, by + 4, 16, echoFrac, '#8ef', 'E');
       const dashFrac = 1 - M.clamp(p.dashCd / (RE.CFG.player.dashCooldown + p.stats.dashCdAdd), 0, 1);
       this._pip(ctx, bx + 268, by + 4, 16, dashFrac, '#7dd', '⇢');
+      // Flashlight state indicator (on = lit gold).
+      this._toggle(ctx, bx + 304, by + 4, 16, p.flashOn, '#ffd27a', 'F');
 
       // --- Top-left: sector / biome ---
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
@@ -166,23 +168,46 @@
       ctx.restore();
     },
 
+    // A simple on/off state chip (flashlight).
+    _toggle(ctx, x, y, r, on, color, glyph) {
+      ctx.save();
+      ctx.translate(x + r, y + r);
+      ctx.strokeStyle = on ? color : 'rgba(255,255,255,0.15)'; ctx.lineWidth = on ? 3 : 2;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+      if (on) { ctx.fillStyle = RE.M.rgba(color, 0.18); ctx.fill(); ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0; }
+      ctx.fillStyle = on ? color : 'rgba(255,255,255,0.35)';
+      ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(glyph, 0, 1);
+      ctx.restore();
+    },
+
+    // Stacking loadout: a row of owned-upgrade chips (rarity-colored, ×count).
     _loadout(ctx, game, x, y) {
       const p = game.player;
-      const slots = ['weapon', 'mobility', 'utility', 'defense'];
       const icons = { weapon: '⚔', mobility: '⇢', utility: '⚙', defense: '◈' };
-      const size = 22, gap = 6;
-      let cx = x - (size + gap) * slots.length + gap;
+      const rar = { common: '#9fd8ff', uncommon: '#7affa0', rare: '#c08bff', legendary: '#ffcf5a' };
+      const seen = {}, list = [];
+      for (const id of p.upgrades) { if (seen[id] == null) { seen[id] = list.length; list.push({ id, n: 1 }); } else list[seen[id]].n++; }
+      const size = 20, gap = 5, max = 8;
+      const show = list.slice(0, max), extra = list.length - show.length;
+      let cx = x - (size + gap) * (show.length + (extra > 0 ? 1 : 0)) + gap;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (const slot of slots) {
-        const id = p.modules[slot];
-        ctx.fillStyle = id ? 'rgba(40,70,90,0.7)' : 'rgba(30,30,40,0.4)';
+      for (const it of show) {
+        const def = RE.MODULES[it.id]; const rc = rar[def.rarity] || '#9fd8ff';
+        ctx.fillStyle = 'rgba(40,70,90,0.7)';
         this._roundRect(ctx, cx, y - size, size, size, 4); ctx.fill();
-        ctx.strokeStyle = id ? 'rgba(140,220,255,0.6)' : 'rgba(120,120,140,0.3)';
-        ctx.lineWidth = 1; ctx.stroke();
-        ctx.font = '12px monospace';
-        ctx.fillStyle = id ? '#cfe9ff' : 'rgba(120,120,140,0.5)';
-        ctx.fillText(icons[slot], cx + size / 2, y - size / 2 + 1);
+        ctx.strokeStyle = RE.M.rgba(rc, 0.8); ctx.lineWidth = 1.2; ctx.stroke();
+        ctx.font = '11px monospace'; ctx.fillStyle = rc;
+        ctx.fillText(icons[def.slot] || '∎', cx + size / 2, y - size / 2 + 1);
+        if (it.n > 1) { ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'right'; ctx.fillText('×' + it.n, cx + size - 1, y - 3); ctx.textAlign = 'center'; }
         cx += size + gap;
+      }
+      if (extra > 0) {
+        ctx.fillStyle = 'rgba(30,40,55,0.6)';
+        this._roundRect(ctx, cx, y - size, size, size, 4); ctx.fill();
+        ctx.strokeStyle = 'rgba(140,180,220,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#bcd8ec';
+        ctx.fillText('+' + extra, cx + size / 2, y - size / 2 + 1);
       }
     },
 

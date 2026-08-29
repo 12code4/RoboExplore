@@ -219,10 +219,32 @@ html, body {
     const bl = Math.round(lerp(a.b, b.b, t));
     return `rgb(${r},${g},${bl})`;
   }
+  // Blend two hex colors, returning a hex string (composable with mixHex).
+  function mixHexHex(hexA, hexB, t) {
+    const a = hexToRgb(hexA), b = hexToRgb(hexB);
+    const to2 = (n) => Math.round(clamp(n, 0, 255)).toString(16).padStart(2, '0');
+    return '#' + to2(lerp(a.r, b.r, t)) + to2(lerp(a.g, b.g, t)) + to2(lerp(a.b, b.b, t));
+  }
+  // HSL -> hex. h in [0,360), s/l in [0,1].
+  function hslHex(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; }
+    else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; }
+    else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; }
+    else { r = c; b = x; }
+    const to2 = (n) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+    return '#' + to2(r) + to2(g) + to2(b);
+  }
 
   RE.M = {
     TAU, clamp, lerp, invLerp, damp, dist, dist2, angleDiff, rotateToward,
-    ease, circleOverlap, approach, hexToRgb, rgba, mixHex,
+    ease, circleOverlap, approach, hexToRgb, rgba, mixHex, mixHexHex, hslHex,
     PI: Math.PI,
   };
 })(window.RE = window.RE || {});
@@ -236,7 +258,7 @@ html, body {
   'use strict';
 
   const CFG = {
-    version: '1.3.2',
+    version: '1.4.0',
 
     // Rendering ----------------------------------------------------------
     viewW: 960,
@@ -245,6 +267,16 @@ html, body {
 
     // World --------------------------------------------------------------
     tile: 28,
+
+    // Destructible walls (v1.4) -----------------------------------------
+    walls: {
+      baseHp: 240,         // very high: digging a tunnel is deliberate work
+      regenDelay: 15,      // seconds without damage before a wall heals
+      regenFrac: 0.02,     // fraction of max HP restored per second
+      spreadFrac: 0.15,    // share of damage bled to surrounding walls
+      spreadSteps: 2,      // how many neighbor hops the bleed travels
+      fortifyMul: 2.4,     // HP multiplier for fortress walls
+    },
 
     // Player -------------------------------------------------------------
     player: {
@@ -260,19 +292,24 @@ html, body {
       dashCost: 18,
       dashCooldown: 0.45,
       dashExitInherit: 0.40,
-      // echo pulse
-      echoCost: 10,
-      echoCooldown: 0.30,
-      echoSpeed: 560,      // ring growth px/s
-      echoMaxRadius: 360,
-      echoBandWidth: 30,   // wash band behind the front
-      echoTileHold: 0.4,   // tiles stay full-bright this long
-      echoTileFadeTau: 1.4,// then decay with this exponential tau
+      // echo pulse — a rare, powerful, long-lingering reveal (v1.4)
+      echoCost: 14,
+      echoCooldown: 8.0,   // big cooldown: pulse is a deliberate, tactical sweep
+      echoSpeed: 620,      // ring growth px/s
+      echoMaxRadius: 420,
+      echoBandWidth: 34,   // wash band behind the front
+      echoTileHold: 3.5,   // tiles stay full-bright this long (then fade ~5s total)
+      echoTileFadeTau: 1.0,// then decay with this exponential tau
       ghostFloor: 0.06,    // permanent dim memory of ever-seen tiles
       enemyVisFade: 0.8,   // seconds for enemy reveal to fade
+      // flashlight — a steady directional cone that drains the battery (v1.4)
+      flashDrain: 7,       // energy/s while lit
+      flashRange: 220,     // cone reach (px)
+      flashHalfArc: 0.55,  // half-angle of the cone (radians) → ~63° spread
+      flashLevel: 0.92,    // brightness the cone washes tiles to
       // passive light
-      lightInner: 46,
-      lightOuter: 92,
+      lightInner: 40,
+      lightOuter: 82,
       // hull
       hullMax: 100,
       hitIframes: 0.6,
@@ -375,7 +412,8 @@ html, body {
       right: ['KeyD', 'ArrowRight'],
       dash: ['ShiftLeft', 'ShiftRight', 'Space'],
       echo: ['KeyE', 'KeyQ'],
-      shield: ['KeyF'],
+      flashlight: ['KeyF'],
+      shield: ['KeyC'],
       pause: ['Escape', 'KeyP'],
       map: ['Tab', 'KeyM'],
       confirm: ['Enter', 'Space'],
@@ -684,6 +722,13 @@ html, body {
         case 'shield_break':
           this.noise({ dur: 0.3, freq: 1400, to: 200, gain: 0.24, type: 'highpass' });
           break;
+        case 'wall_break':
+          this.noise({ dur: 0.34, freq: 520, to: 90, gain: 0.22, type: 'lowpass', q: 0.7 });
+          this.tone({ type: 'square', freq: 140, to: 50, dur: 0.2, gain: 0.12, filter: { type: 'lowpass', freq: 700 } });
+          break;
+        case 'spawn':
+          this.tone({ type: 'sawtooth', freq: 160, to: 420, dur: 0.22, gain: 0.12, filter: { type: 'bandpass', freq: 900, q: 3 } });
+          break;
         case 'boss':
           this.tone({ type: 'sawtooth', freq: 90, to: 55, dur: 1.1, gain: 0.32, filter: { type: 'lowpass', freq: 500, to: 180 } });
           this.noise({ dur: 0.9, freq: 200, to: 60, gain: 0.18, type: 'lowpass' });
@@ -704,39 +749,231 @@ html, body {
       }
     },
 
-    // --- Ambient music bed (drone that shifts by biome) --------------------
+    // --- Generative music: a drone bed under intermingled eerie phrases -----
+    //
+    // Each sector gets a quiet biome drone plus a scheduler that strings ~20-40s
+    // instrumental "phrases" (music-box, bells, pad swells, tolls, whispers)
+    // back to back in varying order, so the loop never repeats the same way.
+
     startMusic(biomeIndex) {
       if (!this._ensure()) return;
       this.stopMusic();
       const ctx = this.ctx, bus = this.musicBus;
-      const roots = [110, 98, 130.81, 87.31, 73.42]; // A2, G2, C3, F2, D2
-      const root = roots[(biomeIndex || 0) % roots.length];
+      const MOODS = [
+        { scale: 'minor',     root: 146.83 }, // Intake — D
+        { scale: 'harmMinor', root: 130.81 }, // Hollows — C
+        { scale: 'phrygian',  root: 138.59 }, // Vaults — C#
+        { scale: 'wholeTone', root: 155.56 }, // Cryostacks — D#
+        { scale: 'octatonic', root: 123.47 }, // Marrow — B
+      ];
+      this._mood = MOODS[(biomeIndex || 0) % MOODS.length];
+
+      // Drone bed (quiet foundation).
+      const root = this._mood.root / 2;
       const voices = [];
       const makeDrone = (mult, type, gain, detune) => {
         const o = ctx.createOscillator();
         o.type = type; o.frequency.value = root * mult; o.detune.value = detune || 0;
         const g = ctx.createGain(); g.gain.value = 0;
-        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 600;
         o.connect(f); f.connect(g); g.connect(bus);
         o.start();
-        g.gain.linearRampToValueAtTime(gain, ctx.currentTime + 3);
-        // slow LFO on filter for movement
-        const lfo = ctx.createOscillator(); lfo.frequency.value = 0.05 + Math.random() * 0.06;
-        const lfoG = ctx.createGain(); lfoG.gain.value = 220;
+        g.gain.linearRampToValueAtTime(gain, ctx.currentTime + 4);
+        const lfo = ctx.createOscillator(); lfo.frequency.value = 0.04 + Math.random() * 0.05;
+        const lfoG = ctx.createGain(); lfoG.gain.value = 180;
         lfo.connect(lfoG); lfoG.connect(f.frequency); lfo.start();
         voices.push({ o, g, lfo });
-        return { o, g, f, lfo };
       };
-      makeDrone(1, 'sawtooth', 0.10, -4);
-      makeDrone(1.5, 'triangle', 0.06, 5);   // fifth
-      makeDrone(2, 'sine', 0.05, 0);          // octave
+      makeDrone(1, 'sawtooth', 0.07, -4);
+      makeDrone(1.5, 'triangle', 0.045, 6);   // fifth
+      makeDrone(2, 'sine', 0.035, 0);          // octave
       this._music = { voices };
+
+      // Phrase bus + lookahead scheduler.
+      const pbus = ctx.createGain(); pbus.gain.value = 0.9; pbus.connect(bus);
+      this._phraseBus = pbus;
+      this._intensity = 0;
+      this._lastPhrase = -1;
+      this._nextPhraseAt = ctx.currentTime + 2.5;   // let the drone settle first
+      this._musicTimer = setInterval(() => this._musicTick(), 300);
+    },
+
+    _musicTick() {
+      if (!this.ready || !this._phraseBus || this.muted) return;
+      const ctx = this.ctx, LOOK = 0.8;
+      if (ctx.currentTime + LOOK < this._nextPhraseAt) return;
+      const start = Math.max(this._nextPhraseAt, ctx.currentTime + 0.06);
+      const dur = this._schedulePhrase(start);
+      // overlap successive phrases slightly so they melt together (a looping track)
+      this._nextPhraseAt = start + dur - (1.5 + Math.random() * 1.5);
+    },
+
+    // Build + schedule one phrase; returns its duration (s).
+    _schedulePhrase(t0) {
+      const gens = ['musicBox', 'padSwell', 'toll', 'whisper', 'spiral'];
+      // Combat leans on drones/tolls; calm leans on melodic music-boxes.
+      let weights = { musicBox: 3, padSwell: 2.4, toll: 2, whisper: 1.6, spiral: 1.6 };
+      if (this._intensity > 0.5) { weights = { musicBox: 1, padSwell: 3, toll: 3, whisper: 2, spiral: 1 }; }
+      // avoid repeating the same phrase twice
+      let pick, guard = 0;
+      do { pick = this._weightedGen(gens, weights); } while (pick === this._lastPhrase && guard++ < 4);
+      this._lastPhrase = pick;
+      const ph = this['_ph_' + pick](this._mood);
+      for (const nt of ph.notes) this._instr(nt.voice, nt.f, t0 + nt.t, nt.dur, nt.gain);
+      // occasionally lay a soft pad under a melodic phrase for depth
+      if ((pick === 'musicBox' || pick === 'spiral') && Math.random() < 0.5) {
+        const bed = this._ph_padSwell(this._mood, 0.5);
+        for (const nt of bed.notes) if (nt.t < ph.dur) this._instr(nt.voice, nt.f, t0 + nt.t, nt.dur, nt.gain * 0.7);
+      }
+      return ph.dur;
+    },
+
+    _weightedGen(keys, weights) {
+      let total = 0; for (const k of keys) total += weights[k] || 0;
+      let r = Math.random() * total;
+      for (const k of keys) { r -= weights[k] || 0; if (r <= 0) return k; }
+      return keys[0];
+    },
+
+    // scale degree -> frequency (degree can span octaves, +/-)
+    _deg(mood, i) {
+      const S = { minor: [0, 2, 3, 5, 7, 8, 10], harmMinor: [0, 2, 3, 5, 7, 8, 11], phrygian: [0, 1, 3, 5, 7, 8, 10], wholeTone: [0, 2, 4, 6, 8, 10], octatonic: [0, 1, 3, 4, 6, 7, 9, 10] }[mood.scale];
+      const n = S.length;
+      const oct = Math.floor(i / n);
+      const step = ((i % n) + n) % n;
+      return mood.root * Math.pow(2, (S[step] + 12 * oct) / 12);
+    },
+
+    // --- Instruments (schedule one note at absolute time t) ----------------
+    _instr(voice, freq, t, dur, gain) {
+      if (!this.ready || t < this.ctx.currentTime - 0.05) return;
+      ({ pluck: this._vPluck, bell: this._vBell, pad: this._vPad, toll: this._vToll, breath: this._vBreath })[voice].call(this, freq, t, dur, gain);
+    },
+    _vPluck(freq, t, dur, gain) {
+      const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = 'triangle'; o.frequency.value = freq;
+      f.type = 'lowpass'; f.frequency.setValueAtTime(3200, t); f.frequency.exponentialRampToValueAtTime(600, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(f); f.connect(g); g.connect(this._phraseBus); o.start(t); o.stop(t + dur + 0.05);
+    },
+    _vBell(freq, t, dur, gain) {
+      const ctx = this.ctx;
+      [[1, gain], [2.76, gain * 0.35], [5.4, gain * 0.14]].forEach(([mult, gg], k) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq * mult;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gg, t + 0.006 + k * 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g); g.connect(this._phraseBus); o.start(t); o.stop(t + dur + 0.05);
+      });
+    },
+    _vPad(freq, t, dur, gain) {
+      const ctx = this.ctx;
+      [-6, 7].forEach((det) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+        o.type = 'sawtooth'; o.frequency.value = freq; o.detune.value = det;
+        f.type = 'lowpass'; f.frequency.value = 900;
+        const atk = dur * 0.4, rel = dur * 0.5;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + atk); g.gain.setValueAtTime(gain, t + dur - rel); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(f); f.connect(g); g.connect(this._phraseBus); o.start(t); o.stop(t + dur + 0.05);
+      });
+    },
+    _vToll(freq, t, dur, gain) {
+      const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = 'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 0.98, t + dur);
+      f.type = 'lowpass'; f.frequency.value = 500;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(f); f.connect(g); g.connect(this._phraseBus); o.start(t); o.stop(t + dur + 0.05);
+    },
+    _vBreath(freq, t, dur, gain) {
+      const ctx = this.ctx, len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 6;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.45); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(this._phraseBus); src.start(t); src.stop(t + dur + 0.05);
+    },
+
+    // --- Phrase generators (each returns {notes, dur}, ~20-40s) ------------
+    _ph_musicBox(m) {
+      const notes = [], reps = 3 + (Math.random() * 2 | 0);
+      let t = 0;
+      for (let r = 0; r < reps; r++) {
+        // a sparse descending figure from the upper octaves
+        let deg = 9 + (Math.random() * 3 | 0);
+        const steps = 4 + (Math.random() * 3 | 0);
+        for (let s = 0; s < steps; s++) {
+          notes.push({ voice: Math.random() < 0.35 ? 'bell' : 'pluck', f: this._deg(m, deg), t, dur: 1.4 + Math.random() * 1.2, gain: 0.05 });
+          t += 0.5 + Math.random() * 0.7;
+          deg -= 1 + (Math.random() < 0.3 ? 1 : 0);
+        }
+        t += 1.6 + Math.random() * 2.2;   // breath between figures
+      }
+      return { notes, dur: Math.max(20, t) };
+    },
+    _ph_padSwell(m, scale) {
+      const notes = []; scale = scale || 1;
+      const chords = 3 + (Math.random() * 2 | 0);
+      let t = 0;
+      for (let c = 0; c < chords; c++) {
+        const rootDeg = [0, 3, 4, -3][c % 4] + (Math.random() < 0.3 ? 7 : 0);
+        const dur = 7 + Math.random() * 4;
+        for (const iv of [0, 2, 4]) notes.push({ voice: 'pad', f: this._deg(m, rootDeg + iv), t, dur, gain: 0.03 * scale });
+        t += dur - 2;   // overlap chords
+      }
+      return { notes, dur: Math.max(20, t + 2) };
+    },
+    _ph_toll(m) {
+      const notes = []; let t = 0;
+      const n = 6 + (Math.random() * 3 | 0);
+      for (let i = 0; i < n; i++) {
+        notes.push({ voice: 'toll', f: this._deg(m, -7 + (Math.random() < 0.25 ? 2 : 0)), t, dur: 3.2 + Math.random(), gain: 0.06 });
+        if (Math.random() < 0.5) notes.push({ voice: 'bell', f: this._deg(m, 7 + (Math.random() * 4 | 0)), t: t + 1.2, dur: 2.4, gain: 0.03 });
+        t += 3.4 + Math.random() * 1.6;
+      }
+      return { notes, dur: Math.max(20, t) };
+    },
+    _ph_whisper(m) {
+      const notes = []; let t = 0;
+      const n = 5 + (Math.random() * 3 | 0);
+      for (let i = 0; i < n; i++) {
+        const f = this._deg(m, 4 + (Math.random() * 8 | 0)) * (2 + Math.random() * 2);
+        notes.push({ voice: 'breath', f, t, dur: 3 + Math.random() * 2, gain: 0.035 });
+        if (Math.random() < 0.4) notes.push({ voice: 'pad', f: this._deg(m, (Math.random() < 0.5 ? 1 : 6)), t: t + 0.5, dur: 4, gain: 0.02 });
+        t += 2.6 + Math.random() * 2.4;
+      }
+      return { notes, dur: Math.max(20, t) };
+    },
+    _ph_spiral(m) {
+      const notes = []; let t = 0;
+      const motif = [0, 3, 1, 4];
+      const reps = 5 + (Math.random() * 3 | 0);
+      let shift = 0, step = 0.42;
+      for (let r = 0; r < reps; r++) {
+        for (const mdeg of motif) {
+          notes.push({ voice: Math.random() < 0.3 ? 'bell' : 'pluck', f: this._deg(m, mdeg + shift + 7), t, dur: 0.9 + Math.random() * 0.6, gain: 0.04 });
+          t += step;
+        }
+        shift += (Math.random() < 0.5 ? 1 : -1);
+        step = Math.max(0.28, step - 0.015);   // subtle accelerando
+        t += 0.6;
+      }
+      return { notes, dur: Math.max(20, t + 1) };
     },
 
     stopMusic() {
       this.stopBossLayer();
-      if (!this._music) return;
+      if (this._musicTimer) { clearInterval(this._musicTimer); this._musicTimer = null; }
       const ctx = this.ctx;
+      if (this._phraseBus) {
+        try {
+          this._phraseBus.gain.cancelScheduledValues(ctx.currentTime);
+          this._phraseBus.gain.setValueAtTime(this._phraseBus.gain.value, ctx.currentTime);
+          this._phraseBus.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
+        } catch (e) {}
+        this._phraseBus = null;
+      }
+      if (!this._music) return;
       for (const v of this._music.voices) {
         try {
           v.g.gain.cancelScheduledValues(ctx.currentTime);
@@ -750,6 +987,7 @@ html, body {
     },
 
     setMusicIntensity(x) {
+      this._intensity = x;
       if (this._music && this.musicBus) {
         this.musicBus.gain.setTargetAtTime(0.3 + x * 0.4, this.ctx.currentTime, 0.5);
       }
@@ -1379,6 +1617,13 @@ html, body {
       color: '#8a3244', glow: '#ff6a8a', salvage: [6, 10], firstSector: 5,
       crouch: 0.6, pounceSpeed: 300, pounceMax: 200, pounceDamage: 24, recover: 1.2, pounceEvery: 5,
     },
+    hive_spawner: {
+      id: 'hive_spawner', name: 'Hive Node', ai: 'spawner', shape: 'spawner',
+      hp: 150, radius: 17, speed: 0, touchDamage: 0, danger: 7,
+      color: '#c04fa8', glow: '#ff8ad6', salvage: [7, 12], firstSector: 2,
+      selfLit: true,   // a menacing beacon inside its fort
+      spawnEvery: 3.2, maxChildren: 4, spawnRange: 520, wakeOnPing: true,
+    },
     leviathan_eye: {
       id: 'leviathan_eye', name: 'Abyssal Eye', ai: 'eye', shape: 'eye',
       hp: 240, radius: 30, speed: 40, touchDamage: 0, danger: 9,
@@ -1395,59 +1640,83 @@ html, body {
   <script>
 /* ==== src/data/modules.js ==== */
 /* RoboExplore — module definitions (loadout parts).
- * Slots: weapon / mobility / utility / defense (one equipped each).
- * apply(stats, player) mutates the stat block; behavioral modules set flags or
- * a `stats.weapon` override that the player's data-driven weapon system reads.
+ *
+ * v1.4 loadout model: modules STACK. You accumulate an arbitrary list of
+ * upgrades and every effect composes — except within a `group`, where a new
+ * module replaces the old (a "direct conflict", e.g. two primary guns, or two
+ * dash overrides). `stack: true` marks additive upgrades worth taking more than
+ * once; those may be re-offered so you can pile them up.
+ *
+ * `slot` is now purely cosmetic (icon + card tag). apply(stats, player) mutates
+ * the stat block; behavioral modules set flags or a `stats.weapon` override that
+ * the player's data-driven weapon system reads.
  */
 (function (RE) {
   'use strict';
 
   const MODULES = {
     // ============ WEAPON ============
+    // Primary guns share group 'gun' — only one can be active at a time.
     'w-scatter': {
-      id: 'w-scatter', name: 'Scatter Emitter', slot: 'weapon', rarity: 'uncommon',
+      id: 'w-scatter', name: 'Scatter Emitter', slot: 'weapon', rarity: 'uncommon', group: 'gun',
       desc: '3-pellet cone: brutal point-blank, weak at range. 6 energy/shot.',
       apply: (s) => { s.weapon = { name: 'Scatter Emitter', damage: 7, fireRate: 4.5, count: 3, spread: 0.244, speed: 500, life: 0.5, radius: 3, energy: 6, color: '#ffd27a', illuminate: 12 }; },
     },
     'w-rail': {
-      id: 'w-rail', name: 'Rail Lance', slot: 'weapon', rarity: 'rare',
+      id: 'w-rail', name: 'Rail Lance', slot: 'weapon', rarity: 'rare', group: 'gun',
       desc: 'Charge, then fire a piercing lance that lights its path. 42 dmg, 20 energy.',
       apply: (s) => { s.weapon = { name: 'Rail Lance', charge: 0.55, damage: 42, fireRate: 1.2, count: 1, spread: 0, speed: 900, life: 0.5, radius: 5, energy: 20, color: '#c88bff', illuminate: 40, heavy: true, pierce: 999 }; },
     },
-    'w-resonant': {
-      id: 'w-resonant', name: 'Resonant Cannon', slot: 'weapon', rarity: 'rare',
-      desc: 'Your echo ring deals 14 damage. Shots hit +4 briefly after each pulse.',
-      apply: (s) => { s.echoDamage = 14; s.echoBuffDamage = 4; },
-    },
     'w-ricochet': {
-      id: 'w-ricochet', name: 'Ricochet Array', slot: 'weapon', rarity: 'uncommon',
+      id: 'w-ricochet', name: 'Ricochet Array', slot: 'weapon', rarity: 'uncommon', group: 'gun',
       desc: 'Shots ricochet off walls x3 at full damage — hit around corners.',
       apply: (s) => { s.weapon = { name: 'Ricochet Array', damage: 9, fireRate: 6, count: 1, spread: 0.05, speed: 440, life: 1.3, radius: 3.4, energy: 0, bounce: 3, color: '#9fe4ff', illuminate: 12 }; },
     },
     'w-siege': {
-      id: 'w-siege', name: 'Siege Capacitor', slot: 'weapon', rarity: 'legendary',
+      id: 'w-siege', name: 'Siege Capacitor', slot: 'weapon', rarity: 'legendary', group: 'gun',
       desc: 'Every 5th shot SURGES: big damage, splash, knockback. Rewards aggression.',
       apply: (s) => { s.weapon = { name: 'Siege Capacitor', damage: 9, fireRate: 6, count: 1, spread: 0.05, speed: 640, life: 0.6, radius: 4, energy: 4, color: '#ffb14a', surgeEvery: 5, surgeDamage: 34, surgeEnergy: 14, splash: 44, splashDamage: 16, knockback: 200, illuminate: 14 }; },
     },
-    'w-swarm': {   // v1.1 content update
-      id: 'w-swarm', name: 'Homing Swarm', slot: 'weapon', rarity: 'rare',
-      desc: 'Fires seeking micro-missiles that hunt the nearest foe in the dark.',
-      apply: (s) => { s.weapon = { name: 'Homing Swarm', damage: 7, fireRate: 3.2, count: 2, spread: 0.5, speed: 300, life: 1.7, radius: 3, energy: 3, color: '#ff9adf', homing: true, homTurn: 4.5, illuminate: 16 }; },
+    'w-swarm': {
+      id: 'w-swarm', name: 'Homing Swarm', slot: 'weapon', rarity: 'rare', group: 'gun',
+      desc: 'Seeking micro-missiles that hunt the nearest foe within short range.',
+      apply: (s) => { s.weapon = { name: 'Homing Swarm', damage: 7, fireRate: 3.2, count: 2, spread: 0.5, speed: 300, life: 1.7, radius: 3, energy: 3, color: '#ff9adf', homing: true, homTurn: 3.4, homRange: 240, illuminate: 16 }; },
+    },
+    // Augments (no gun conflict — they stack onto whatever gun you carry).
+    'w-resonant': {
+      id: 'w-resonant', name: 'Resonant Cannon', slot: 'weapon', rarity: 'rare', stack: true,
+      desc: 'Your echo ring deals 14 damage. Shots hit +4 briefly after each pulse. Stacks.',
+      apply: (s) => { s.echoDamage += 14; s.echoBuffDamage += 4; },
+    },
+    'w-overcharge': {
+      id: 'w-overcharge', name: 'Overcharge Coil', slot: 'weapon', rarity: 'uncommon', stack: true,
+      desc: '+18% weapon damage. Stacks — pile them on.',
+      apply: (s) => { s.damageMul *= 1.18; },
+    },
+    'w-breaker': {
+      id: 'w-breaker', name: 'Breaker Rounds', slot: 'weapon', rarity: 'common', stack: true,
+      desc: 'Shots tear terrain apart: +150% wall damage. Carve the Hollow. Stacks.',
+      apply: (s) => { s.wallDamageMul *= 2.5; },
     },
 
     // ============ MOBILITY ============
     'm-servos': {
-      id: 'm-servos', name: 'Kinetic Servos', slot: 'mobility', rarity: 'common',
+      id: 'm-servos', name: 'Kinetic Servos', slot: 'mobility', rarity: 'common', stack: true,
       desc: '+22% move speed, +18% dash distance. You outrun your own light.',
       apply: (s) => { s.speedMul *= 1.22; s.dashDistMul *= 1.18; },
     },
+    'm-treads': {
+      id: 'm-treads', name: 'Grip Treads', slot: 'mobility', rarity: 'common', stack: true,
+      desc: '+12% move speed. Simple, and it stacks.',
+      apply: (s) => { s.speedMul *= 1.12; },
+    },
     'm-phaserush': {
-      id: 'm-phaserush', name: 'Phase Rush', slot: 'mobility', rarity: 'rare',
+      id: 'm-phaserush', name: 'Phase Rush', slot: 'mobility', rarity: 'rare', group: 'dash',
       desc: 'Dash phases through enemies and ends in a free reveal micro-pulse.',
       apply: (s) => { s.phaseDash = true; s.dashMicroPulse = true; s.dashCostAdd += 6; s.dashCdAdd += 0.12; },
     },
     'm-blink': {
-      id: 'm-blink', name: 'Blink Core', slot: 'mobility', rarity: 'legendary',
+      id: 'm-blink', name: 'Blink Core', slot: 'mobility', rarity: 'legendary', group: 'dash',
       desc: 'Instant blink with full i-frames, always lands clear. Costlier, longer CD.',
       apply: (s) => { s.blinkDash = true; s.dashCostAdd += 8; },
     },
@@ -1456,7 +1725,7 @@ html, body {
       desc: 'Move fast: +10 regen and no post-spend delay. Refuel mid-fight.',
       apply: (s) => { s.momentumRegen = true; },
     },
-    'm-chrono': {   // v1.1 content update
+    'm-chrono': {
       id: 'm-chrono', name: 'Chrono Dilate', slot: 'mobility', rarity: 'legendary',
       desc: 'Dashing briefly slows everything but you — dodge into bullet-time.',
       apply: (s) => { s.chronoDilate = true; },
@@ -1464,7 +1733,7 @@ html, body {
 
     // ============ UTILITY ============
     'u-amplifier': {
-      id: 'u-amplifier', name: 'Echo Amplifier', slot: 'utility', rarity: 'uncommon',
+      id: 'u-amplifier', name: 'Echo Amplifier', slot: 'utility', rarity: 'uncommon', stack: true,
       desc: 'Echo reaches farther and wider, costs less — but you pulse slower.',
       apply: (s) => { s.echoRangeMul *= 1.35; s.echoBandMul *= 1.4; s.echoHoldAdd += 1.4; s.echoCostAdd -= 3; s.echoCdAdd += 0.3; },
     },
@@ -1479,31 +1748,51 @@ html, body {
       apply: (s) => { s.magnetRange = Math.max(s.magnetRange, 130); s.magnetBonus = 20; },
     },
     'u-battery': {
-      id: 'u-battery', name: 'Static Battery', slot: 'utility', rarity: 'uncommon',
+      id: 'u-battery', name: 'Static Battery', slot: 'utility', rarity: 'uncommon', stack: true,
       desc: '+40 max energy and a much shorter regen delay. A deep tank.',
       apply: (s) => { s.energyMaxAdd += 40; s.regenDelayAdd -= 0.25; },
+    },
+    'u-reserves': {
+      id: 'u-reserves', name: 'Reserve Cells', slot: 'utility', rarity: 'common', stack: true,
+      desc: '+25 max energy. Feed the battery. Stacks.',
+      apply: (s) => { s.energyMaxAdd += 25; },
     },
     'u-lens': {
       id: 'u-lens', name: 'Predator Lens', slot: 'utility', rarity: 'rare',
       desc: 'Echo/light MARKS foes 3.5s: +30% damage, outlined even in the dark.',
       apply: (s) => { s.markFromEcho = true; s.markDur = 3.5; },
     },
-    'u-nova': {   // v1.1 content update
-      id: 'u-nova', name: 'Echo Nova', slot: 'utility', rarity: 'legendary',
-      desc: 'Your echo pulse also detonates: a damaging shockwave that flings foes back.',
-      apply: (s) => { s.echoNova = 26; },
+    'u-floodlight': {
+      id: 'u-floodlight', name: 'Floodlight Rig', slot: 'utility', rarity: 'uncommon',
+      desc: 'Your flashlight throws a wider, longer cone and sips less battery.',
+      apply: (s) => { s.flashRangeMul *= 1.4; s.flashArcMul *= 1.4; s.flashDrainMul *= 0.6; },
+    },
+    'u-lumen': {
+      id: 'u-lumen', name: 'Lumen Plating', slot: 'utility', rarity: 'common', stack: true,
+      desc: '+20% passive light radius. See a little more of the dark. Stacks.',
+      apply: (s) => { s.lightInnerMul *= 1.2; s.lightOuterMul *= 1.2; },
+    },
+    'u-nova': {
+      id: 'u-nova', name: 'Echo Nova', slot: 'utility', rarity: 'legendary', stack: true,
+      desc: 'Your echo pulse also detonates: a damaging shockwave that flings foes back. Stacks.',
+      apply: (s) => { s.echoNova += 26; },
     },
 
     // ============ DEFENSE ============
     'd-deflector': {
       id: 'd-deflector', name: 'Deflector Shield', slot: 'defense', rarity: 'common',
-      desc: 'Hold [F]: frontal shield blocks projectiles. Drains energy, slows you.',
+      desc: 'Hold [Right-Mouse]: frontal shield blocks projectiles. Drains energy, slows you.',
       apply: (s) => { s.shieldHold = true; },
     },
     'd-hardplate': {
-      id: 'd-hardplate', name: 'Hardplate', slot: 'defense', rarity: 'common',
+      id: 'd-hardplate', name: 'Hardplate', slot: 'defense', rarity: 'common', stack: true,
       desc: '+40 hull, -25% damage taken. But -15% speed and a costlier dash.',
       apply: (s) => { s.hullMaxAdd += 40; s.armorMul *= 0.75; s.speedMul *= 0.85; s.dashCostAdd += 4; },
+    },
+    'd-plating': {
+      id: 'd-plating', name: 'Ablative Plating', slot: 'defense', rarity: 'common', stack: true,
+      desc: '+25 max hull. No downside. Stacks.',
+      apply: (s) => { s.hullMaxAdd += 25; },
     },
     'd-nanofield': {
       id: 'd-nanofield', name: 'Reactive Nanofield', slot: 'defense', rarity: 'rare',
@@ -1515,10 +1804,10 @@ html, body {
       desc: 'Once/sector: a lethal hit leaves you at 1 hull, venting all energy as a nuke.',
       apply: (s) => { s.coreVent = true; },
     },
-    'd-bulwark': {   // v1.1 content update
+    'd-bulwark': {
       id: 'd-bulwark', name: 'Bulwark Field', slot: 'defense', rarity: 'rare',
       desc: 'A rechargeable bubble absorbs damage from any direction, then reforms.',
-      apply: (s) => { s.bulwark = 45; s.bulwarkRegenDelay = 4; s.bulwarkRegen = 18; },
+      apply: (s) => { s.bulwark += 45; s.bulwarkRegenDelay = 4; s.bulwarkRegen = 18; },
     },
   };
 
@@ -1820,6 +2109,8 @@ html, body {
       beam: !!opts.beam,
       homing: !!opts.homing,
       homTurn: opts.homTurn || 4,
+      homRange: opts.homRange || 1e9,   // max seek distance (0/undefined => unlimited)
+      wallDamage: opts.wallDamage != null ? opts.wallDamage : (opts.friendly ? (opts.damage || 8) : 0),
       hitSet: null,
       trail: 0,
       onExpire: opts.onExpire || null,
@@ -1828,9 +2119,9 @@ html, body {
       update(dt, game) {
         this.life += dt;
         if (this.life >= this.maxLife) { this.alive = false; if (this.onExpire) this.onExpire(); return; }
-        // homing: steer toward the nearest living enemy
+        // homing: steer toward the nearest living enemy within seek range
         if (this.homing && this.friendly && game.enemies) {
-          let best = null, bd = 1e9;
+          let best = null, bd = this.homRange * this.homRange;
           for (const e of game.enemies) { if (!e.alive) continue; const dd = (e.x - this.x) * (e.x - this.x) + (e.y - this.y) * (e.y - this.y); if (dd < bd) { bd = dd; best = e; } }
           if (best) {
             const desired = Math.atan2(best.y - this.y, best.x - this.x);
@@ -1842,6 +2133,8 @@ html, body {
         }
         const nx = this.x + this.vx * dt, ny = this.y + this.vy * dt;
         if (game.map.isWallPx(nx, ny)) {
+          // Friendly shots carve the Hollow: deposit damage into the struck wall.
+          if (this.wallDamage > 0 && game.damageWall) game.damageWall(nx, ny, this.wallDamage * (this.bounce > 0 ? 0.3 : 1));
           if (this.bounce > 0) {
             // reflect off the offending axis
             const hitX = game.map.isWallPx(this.x + this.vx * dt, this.y);
@@ -2243,6 +2536,7 @@ html, body {
           case 'mine': this._aiMine(dt, game, p, d); break;
           case 'stalker': this._aiStalker(dt, game, p, d); break;
           case 'eye': this._aiEye(dt, game, p, d); break;
+          case 'spawner': this._aiSpawner(dt, game, p, d); break;
           default: this._aiChaser(dt, game, p, d); break;
         }
 
@@ -2494,6 +2788,34 @@ html, body {
         }
       },
 
+      // Hive Node — a fortified, immobile spawner: pumps out minions until it
+      // is destroyed. It sits enclosed by fortified (destructible) walls; the
+      // player must breach the nest for the guaranteed upgrade inside.
+      _aiSpawner(dt, game, p, d) {
+        this.vx = 0; this.vy = 0; this.vis = 1;
+        if (d < def.spawnRange) this.awake = true;
+        if (!this.awake) { this.fireCd = Math.max(this.fireCd, 0.5); return; }
+        this.fireCd -= dt;
+        if (this.fireCd > 0) return;
+        this.fireCd = def.spawnEvery;
+        this._children = (this._children || []).filter(c => c.alive);
+        if (this._children.length >= def.maxChildren || game.enemies.length > 60) return;
+        // biome-flavored light minions (fall back to Skitter)
+        let pool = (game.biome && game.biome.enemies) ? game.biome.enemies.filter(id => {
+          const dd = RE.ENEMIES[id]; return dd && dd.speed > 0 && (dd.danger || 1) <= 5 && dd.ai !== 'spawner';
+        }) : null;
+        if (!pool || !pool.length) pool = ['skitter'];
+        const id = pool[(Math.random() * pool.length) | 0];
+        const a = Math.random() * Math.PI * 2, rr = this.r + 6 + Math.random() * 10;
+        const c = game.spawnEnemy(id, this.x + Math.cos(a) * rr, this.y + Math.sin(a) * rr, { awake: true });
+        this._children.push(c);
+        RE.Echo.pulse(this.x, this.y, { maxR: 90, speed: 600, strength: 0.7 });
+        game.onPulse(this.x, this.y, 90);
+        Particles.burst(this.x, this.y, 10, { speed: 160, color: def.glow, life: 0.4, size: 3, kind: 'spark' });
+        RE.Audio.sfx('spawn');
+        game.camera.addTrauma(0.06);
+      },
+
       _beamDamage(dt, game, p, ang, arc, len, dmg) {
         const d = M.dist(this.x, this.y, p.x, p.y);
         if (d > len) return;
@@ -2651,6 +2973,14 @@ html, body {
         else if (shape === 'wraith') { this._spikes(ctx, r, 8); }
         else if (shape === 'mine') { this._spikes(ctx, r, 5); }
         else if (shape === 'stalker') { this._spider(ctx, r * 1.1); }
+        else if (shape === 'spawner') {
+          this._poly(ctx, 8, r);
+          ctx.globalCompositeOperation = 'lighter';
+          const pl = 0.5 + 0.5 * Math.sin(this.wobble * 2);
+          ctx.fillStyle = RE.M.rgba(def.glow, 0.6 * pl);
+          ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
         else if (shape === 'eye') { this._eye(ctx, r); }
         else { ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
       },
@@ -3013,8 +3343,9 @@ html, body {
       echoRangeMul: 1, echoBandMul: 1, echoHoldAdd: 0, echoCostAdd: 0, echoCdAdd: 0,
       twinPulse: false,
       markFromEcho: false, markDur: 3.5,   // Predator Lens: extends duration/sources only (no extra mult)
-      damageMul: 1, armorMul: 1, hullMaxAdd: 0,
+      damageMul: 1, armorMul: 1, hullMaxAdd: 0, wallDamageMul: 1,
       lightInnerMul: 1, lightOuterMul: 1,
+      flashRangeMul: 1, flashArcMul: 1, flashDrainMul: 1,
       magnetRange: 0, magnetBonus: 0,
       momentumRegen: false, momentumSpeed: 120, momentumBonus: 10,
       shieldHold: false, retaliate: 0, retaliateStun: 0.4, retaliateEnergy: 8,
@@ -3054,25 +3385,40 @@ html, body {
       barrierTimer: 0,
       bulwarkShield: 0, bulwarkTimer: 0,
       thruster: 0, walkCycle: 0,
-      modules: { weapon: null, mobility: null, utility: null, defense: null },
+      flashOn: false,
+      upgrades: [],   // stacking loadout: list of equipped module ids
       stats: baseStats(),
       speed: 0,
       _lowPing: false, retaliateCd: 0,
 
+      // Install a module. Modules stack; within a conflict `group` a new module
+      // replaces the old (two guns can't coexist). Returns {added, replaced}.
       equip(moduleId) {
         const def = RE.MODULES[moduleId];
-        if (!def) return false;
-        this.modules[def.slot] = moduleId;
+        if (!def) return { added: false, replaced: null };
+        let replaced = null;
+        if (def.group) {
+          // replace any existing member of the same conflict group
+          for (let i = 0; i < this.upgrades.length; i++) {
+            const od = RE.MODULES[this.upgrades[i]];
+            if (od && od.group === def.group) { replaced = this.upgrades[i]; this.upgrades.splice(i, 1); break; }
+          }
+          this.upgrades.push(moduleId);
+        } else if (def.stack) {
+          this.upgrades.push(moduleId);   // duplicates allowed: they compound
+        } else {
+          if (!this.upgrades.includes(moduleId)) this.upgrades.push(moduleId);
+        }
         this.recompute();
-        return true;
+        return { added: true, replaced };
       },
-      hasModule(id) { return Object.values(this.modules).includes(id); },
+      hasModule(id) { return this.upgrades.includes(id); },
+      hasGroup(group) { return this.upgrades.some(id => RE.MODULES[id] && RE.MODULES[id].group === group); },
+      upgradeCount(id) { let n = 0; for (const u of this.upgrades) if (u === id) n++; return n; },
 
       recompute() {
         this.stats = baseStats();
-        for (const slot of Object.keys(this.modules)) {
-          const id = this.modules[slot];
-          if (!id) continue;
+        for (const id of this.upgrades) {
           const def = RE.MODULES[id];
           if (def && def.apply) def.apply(this.stats, this);
         }
@@ -3164,6 +3510,29 @@ html, body {
         game.onPulse(this.x, this.y, 130);
       },
 
+      // ---- Flashlight (steady directional cone; drains the battery) -----
+      toggleFlashlight() {
+        this.flashOn = !this.flashOn;
+        RE.Audio.sfx(this.flashOn ? 'ui' : 'ui_move');
+        if (this.flashOn && this.energy <= 0) { this.flashOn = false; RE.Audio.sfx('lowpower'); }
+      },
+      flashParams() {
+        return {
+          range: CFG.player.flashRange * this.stats.flashRangeMul,
+          half: CFG.player.flashHalfArc * this.stats.flashArcMul,
+        };
+      },
+      _flashlight(dt, game) {
+        if (!this.flashOn) return;
+        if (this.energy <= 0) { this.flashOn = false; RE.Audio.sfx('lowpower'); return; }
+        const drain = CFG.player.flashDrain * this.stats.flashDrainMul * dt;
+        this.energy = Math.max(0, this.energy - drain);
+        this.energyDelay = Math.max(this.energyDelay, 0.3);   // suppress passive regen while lit
+        const { range, half } = this.flashParams();
+        RE.Echo.washCone(this.x, this.y, this.facing, range, half, CFG.player.flashLevel, game.map);
+        if (this.energy <= 0) { this.flashOn = false; RE.Audio.sfx('lowpower'); }
+      },
+
       // ---- Echo pulse (with Echo-Charge + Twin-Pulse) ------------------
       echo(game) {
         if (this.echoCd > 0) return;
@@ -3239,7 +3608,8 @@ html, body {
             life: w.life, color: w.color, friendly: true,
             pierce: (w.pierce || 0) + bonusPierce, bounce: w.bounce || 0,
             illuminate: w.illuminate || 0, splash, splashDmg, knockback: knock,
-            homing: w.homing, homTurn: w.homTurn,
+            homing: w.homing, homTurn: w.homTurn, homRange: w.homRange,
+            wallDamage: w.damage * this.stats.wallDamageMul,
           });
         }
         Particles.burst(this.x + Math.cos(this.facing) * this.radius, this.y + Math.sin(this.facing) * this.radius,
@@ -3261,6 +3631,7 @@ html, body {
             r: w.radius, damage: w.damage * this.stats.damageMul,
             life: w.life, color: w.color, friendly: true,
             pierce: 999, illuminate: 40, beam: true,
+            wallDamage: w.damage * this.stats.wallDamageMul,
           });
           RE.Audio.sfx('shoot_heavy');
           game.camera.addTrauma(0.22);
@@ -3372,10 +3743,15 @@ html, body {
         // Actions.
         if (RE.Input.pressed('echo')) this.echo(game);
         if (RE.Input.pressed('dash')) this.dash(game);
+        if (RE.Input.pressed('flashlight')) this.toggleFlashlight();
 
-        // Shield hold (Deflector).
+        // Flashlight: a steady directional cone that drains the battery.
+        this._flashlight(dt, game);
+
+        // Shield hold (Deflector) — held on right-mouse (or [C]).
         this.shieldActive = false;
-        if (this.stats.shieldHold && RE.Input.down('shield') && this.energy > 0) {
+        const shieldHeld = RE.Input.mouse.right || RE.Input.down('shield');
+        if (this.stats.shieldHold && shieldHeld && this.energy > 0) {
           this.shieldActive = true;
           this.spend(10 * dt);
           this.shieldAngle = this.facing;
@@ -3472,6 +3848,20 @@ html, body {
         halo.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = halo;
         ctx.beginPath(); ctx.arc(0, 0, lr, 0, Math.PI * 2); ctx.fill();
+
+        // Flashlight cone glow (warm, in the aim direction).
+        if (this.flashOn) {
+          const { range, half } = this.flashParams();
+          const cone = ctx.createRadialGradient(0, 0, 0, 0, 0, range);
+          cone.addColorStop(0, 'rgba(255,244,210,0.20)');
+          cone.addColorStop(0.6, 'rgba(255,232,170,0.08)');
+          cone.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = cone;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, range, this.facing - half, this.facing + half);
+          ctx.closePath(); ctx.fill();
+        }
         ctx.globalCompositeOperation = 'source-over';
 
         // Deflector shield arc.
@@ -3641,6 +4031,38 @@ html, body {
       }
     },
 
+    // Flashlight cone: wash tiles inside an angular wedge, occluded by walls so
+    // the beam actually stops at stone. `map` supplies line-of-sight.
+    washCone(x, y, ang, range, half, level, map) {
+      const { W, H, T, light, seen } = this;
+      const r2 = range * range;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const cosHalf = Math.cos(half);
+      const minTx = M.clamp(((x - range) / T) | 0, 0, W - 1);
+      const maxTx = M.clamp(((x + range) / T) | 0, 0, W - 1);
+      const minTy = M.clamp(((y - range) / T) | 0, 0, H - 1);
+      const maxTy = M.clamp(((y + range) / T) | 0, 0, H - 1);
+      for (let ty = minTy; ty <= maxTy; ty++) {
+        const cy = (ty + 0.5) * T - y;
+        for (let tx = minTx; tx <= maxTx; tx++) {
+          const cx = (tx + 0.5) * T - x;
+          const d2 = cx * cx + cy * cy;
+          if (d2 > r2 || d2 < 1) continue;
+          const d = Math.sqrt(d2);
+          if ((cx * ca + cy * sa) / d < cosHalf) continue;   // outside the wedge
+          // occlusion: sample just short of the tile so the near wall face lights
+          if (map && d > T * 0.7) {
+            const back = d - T * 0.6;
+            if (!map.hasLOS(x, y, x + (cx / d) * back, y + (cy / d) * back)) continue;
+          }
+          const i = ty * W + tx;
+          const lv = level * (1 - (d / range) * 0.65);
+          if (light[i] < lv) light[i] = lv;
+          seen[i] = 1;
+        }
+      }
+    },
+
     spawnPing(x, y, color) {
       // Cap concurrent pings for readability.
       if (this.pings.length > 40) this.pings.shift();
@@ -3757,6 +4179,178 @@ html, body {
   RE.Echo = Echo;
 })(window.RE = window.RE || {});
   </script>
+  <script>
+/* ==== src/systems/walls.js ==== */
+/* RoboExplore — destructible walls (v1.4).
+ *
+ * Every wall tile carries hit points. Player fire (and player AoE) chips them
+ * down; a fraction of each hit bleeds to the surrounding walls (up to a couple
+ * of hops) so damage spreads instead of drilling a needle. A wall reduced to 0
+ * HP is carved open (becomes floor) — a permanent tunnel through the Hollow.
+ * Damaged-but-standing walls slowly regenerate after a lull, so breaching takes
+ * sustained fire, not a stray shot.
+ *
+ * Walls also read as a "dark rainbow" damage gauge: undamaged tiles keep the
+ * biome's near-black stone; as they take damage they tint through purple → blue
+ * → green → orange → red (each a dark shade), so you can see what's about to
+ * give. The map grid (RE.Tilemap) is kept in sync so collision, echo, and
+ * pathing see carved tunnels immediately.
+ */
+(function (RE) {
+  'use strict';
+  const M = RE.M;
+
+  const Walls = {
+    map: null, W: 0, H: 0,
+    hp: null,        // Float32 current HP (0 for non-wall / carved)
+    max: null,       // Float32 max HP (Infinity for the indestructible border)
+    since: null,     // Float32 seconds since last damaged
+    damaged: null,   // Set<int> of tile indices with hp<max (needs regen + colored)
+    cfg: null,
+    onBreak: null,   // optional callback(tx,ty) when a wall is carved open
+
+    reset(map, cfg) {
+      this.map = map; this.cfg = cfg.walls;
+      this.W = map.w; this.H = map.h;
+      const n = this.W * this.H;
+      this.hp = new Float32Array(n);
+      this.max = new Float32Array(n);
+      this.since = new Float32Array(n);
+      this.damaged = new Set();
+      this.onBreak = null;
+      const base = this.cfg.baseHp;
+      const W = this.W, H = this.H, grid = map.grid, WALL = map.gen.WALL;
+      for (let ty = 0; ty < H; ty++) {
+        for (let tx = 0; tx < W; tx++) {
+          const i = ty * W + tx;
+          if (grid[i] !== WALL) continue;
+          // The 2-tile solid border is indestructible so the void stays sealed.
+          const border = tx < 2 || ty < 2 || tx >= W - 2 || ty >= H - 2;
+          this.max[i] = border ? Infinity : base;
+          this.hp[i] = border ? Infinity : base;
+        }
+      }
+    },
+
+    _isWall(tx, ty) {
+      if (tx < 0 || ty < 0 || tx >= this.W || ty >= this.H) return false;
+      return this.map.grid[ty * this.W + tx] === this.map.gen.WALL;
+    },
+
+    // Turn a tile into a fortified wall (fortress construction). Keeps the
+    // collision grid in sync and registers its (raised) HP.
+    fortifyTile(tx, ty, mult) {
+      if (tx < 1 || ty < 1 || tx >= this.W - 1 || ty >= this.H - 1) return;
+      const i = ty * this.W + tx;
+      this.map.grid[i] = this.map.gen.WALL;
+      const hp = this.cfg.baseHp * (mult || this.cfg.fortifyMul);
+      this.max[i] = hp; this.hp[i] = hp; this.since[i] = 0;
+      this.damaged.delete(i);
+    },
+
+    // Carve a tile to floor (fortress interior). Keeps the grid in sync.
+    clearTile(tx, ty) {
+      const i = ty * this.W + tx;
+      this.map.grid[i] = this.map.gen.FLOOR;
+      this.hp[i] = 0; this.max[i] = 0; this.damaged.delete(i);
+    },
+
+    damageWorld(px, py, dmg) {
+      const tx = (px / this.map.tile) | 0, ty = (py / this.map.tile) | 0;
+      this._apply(tx, ty, dmg, 0, null);
+    },
+    damageTile(tx, ty, dmg) { this._apply(tx, ty, dmg, 0, null); },
+
+    _apply(tx, ty, dmg, step, seen) {
+      if (dmg <= 0 || !this._isWall(tx, ty)) return;
+      const i = ty * this.W + tx;
+      const mx = this.max[i];
+      if (!isFinite(mx) || mx <= 0) return;   // indestructible border / not tracked
+      if (seen) { if (seen.has(i)) return; seen.add(i); }
+
+      this.hp[i] -= dmg;
+      this.since[i] = 0;
+      if (this.hp[i] < this.max[i]) this.damaged.add(i);
+
+      if (this.hp[i] <= 0) {
+        this._break(tx, ty, i);
+      }
+
+      // Bleed a share of the damage to surrounding walls (bounded hops).
+      if (step < this.cfg.spreadSteps) {
+        const spread = dmg * this.cfg.spreadFrac;
+        if (spread > 0.05) {
+          const s = seen || new Set([i]);
+          // collect standing wall neighbors (8-dir)
+          const nb = [];
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = tx + dx, ny = ty + dy;
+              if (this._isWall(nx, ny) && !s.has(ny * this.W + nx) && isFinite(this.max[ny * this.W + nx])) nb.push([nx, ny]);
+            }
+          }
+          if (nb.length) {
+            const share = spread / nb.length;
+            for (const [nx, ny] of nb) this._apply(nx, ny, share, step + 1, s);
+          }
+        }
+      }
+    },
+
+    _break(tx, ty, i) {
+      this.hp[i] = 0; this.max[i] = 0;
+      this.damaged.delete(i);
+      this.map.grid[i] = this.map.gen.FLOOR;   // carve the tunnel
+      const T = this.map.tile;
+      const cx = (tx + 0.5) * T, cy = (ty + 0.5) * T;
+      RE.Particles.burst(cx, cy, 12, { speed: 170, color: '#c9b7a0', life: 0.5, size: 3, kind: 'spark' });
+      RE.Particles.burst(cx, cy, 6, { speed: 70, color: '#6b5c4c', life: 0.6, size: 3.5, kind: 'dot' });
+      RE.Audio.sfx('wall_break');
+      if (this.onBreak) this.onBreak(tx, ty);
+    },
+
+    update(dt) {
+      if (!this.damaged || !this.damaged.size) return;
+      const delay = this.cfg.regenDelay, frac = this.cfg.regenFrac;
+      for (const i of this.damaged) {
+        this.since[i] += dt;
+        if (this.since[i] >= delay) {
+          this.hp[i] = Math.min(this.max[i], this.hp[i] + this.max[i] * frac * dt);
+          if (this.hp[i] >= this.max[i]) this.damaged.delete(i);
+        }
+      }
+    },
+
+    // Damage fraction [0..1] for a tile (0 = pristine, →1 = about to give).
+    damageFrac(tx, ty) {
+      const i = ty * this.W + tx;
+      const mx = this.max[i];
+      if (!isFinite(mx) || mx <= 0) return 0;
+      const hp = this.hp[i];
+      if (hp >= mx) return 0;
+      return M.clamp(1 - hp / mx, 0, 1);
+    },
+
+    // The wall's base color given the biome stone — a dark rainbow keyed to HP.
+    // Undamaged returns the biome color (fast path). Damage tints through
+    // purple → blue → green → yellow → orange → red, kept dark ("a dark version
+    // of themselves").
+    wallColor(tx, ty, baseHex) {
+      const d = this.damageFrac(tx, ty);
+      if (d <= 0.001) return baseHex;
+      // hue sweeps 270° (purple) down to 0° (red) as damage rises.
+      const hue = 270 * (1 - d);
+      const dark = M.hslHex(hue, 0.85, 0.30);
+      // color appears quickly but the tile darkens toward red near collapse.
+      const t = Math.pow(d, 0.6);
+      return M.mixHexHex(baseHex, dark, t);
+    },
+  };
+
+  RE.Walls = Walls;
+})(window.RE = window.RE || {});
+  </script>
 <!-- ui -->
   <script>
 /* ==== src/ui/hud.js ==== */
@@ -3837,11 +4431,13 @@ html, body {
       // Energy bar
       this._bar(ctx, bx, by + 22, 210, 14, enFrac, '#2db6ff', '#9fe4ff', 'ENERGY', Math.ceil(p.energy) + '/' + p.energyMax);
 
-      // Echo cooldown pip
-      const echoFrac = 1 - M.clamp(p.echoCd / RE.CFG.player.echoCooldown, 0, 1);
+      // Echo cooldown pip (now a long, deliberate recharge)
+      const echoFrac = 1 - M.clamp(p.echoCd / (RE.CFG.player.echoCooldown + p.stats.echoCdAdd), 0, 1);
       this._pip(ctx, bx + 232, by + 4, 16, echoFrac, '#8ef', 'E');
       const dashFrac = 1 - M.clamp(p.dashCd / (RE.CFG.player.dashCooldown + p.stats.dashCdAdd), 0, 1);
       this._pip(ctx, bx + 268, by + 4, 16, dashFrac, '#7dd', '⇢');
+      // Flashlight state indicator (on = lit gold).
+      this._toggle(ctx, bx + 304, by + 4, 16, p.flashOn, '#ffd27a', 'F');
 
       // --- Top-left: sector / biome ---
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
@@ -3928,23 +4524,46 @@ html, body {
       ctx.restore();
     },
 
+    // A simple on/off state chip (flashlight).
+    _toggle(ctx, x, y, r, on, color, glyph) {
+      ctx.save();
+      ctx.translate(x + r, y + r);
+      ctx.strokeStyle = on ? color : 'rgba(255,255,255,0.15)'; ctx.lineWidth = on ? 3 : 2;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+      if (on) { ctx.fillStyle = RE.M.rgba(color, 0.18); ctx.fill(); ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0; }
+      ctx.fillStyle = on ? color : 'rgba(255,255,255,0.35)';
+      ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(glyph, 0, 1);
+      ctx.restore();
+    },
+
+    // Stacking loadout: a row of owned-upgrade chips (rarity-colored, ×count).
     _loadout(ctx, game, x, y) {
       const p = game.player;
-      const slots = ['weapon', 'mobility', 'utility', 'defense'];
       const icons = { weapon: '⚔', mobility: '⇢', utility: '⚙', defense: '◈' };
-      const size = 22, gap = 6;
-      let cx = x - (size + gap) * slots.length + gap;
+      const rar = { common: '#9fd8ff', uncommon: '#7affa0', rare: '#c08bff', legendary: '#ffcf5a' };
+      const seen = {}, list = [];
+      for (const id of p.upgrades) { if (seen[id] == null) { seen[id] = list.length; list.push({ id, n: 1 }); } else list[seen[id]].n++; }
+      const size = 20, gap = 5, max = 8;
+      const show = list.slice(0, max), extra = list.length - show.length;
+      let cx = x - (size + gap) * (show.length + (extra > 0 ? 1 : 0)) + gap;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (const slot of slots) {
-        const id = p.modules[slot];
-        ctx.fillStyle = id ? 'rgba(40,70,90,0.7)' : 'rgba(30,30,40,0.4)';
+      for (const it of show) {
+        const def = RE.MODULES[it.id]; const rc = rar[def.rarity] || '#9fd8ff';
+        ctx.fillStyle = 'rgba(40,70,90,0.7)';
         this._roundRect(ctx, cx, y - size, size, size, 4); ctx.fill();
-        ctx.strokeStyle = id ? 'rgba(140,220,255,0.6)' : 'rgba(120,120,140,0.3)';
-        ctx.lineWidth = 1; ctx.stroke();
-        ctx.font = '12px monospace';
-        ctx.fillStyle = id ? '#cfe9ff' : 'rgba(120,120,140,0.5)';
-        ctx.fillText(icons[slot], cx + size / 2, y - size / 2 + 1);
+        ctx.strokeStyle = RE.M.rgba(rc, 0.8); ctx.lineWidth = 1.2; ctx.stroke();
+        ctx.font = '11px monospace'; ctx.fillStyle = rc;
+        ctx.fillText(icons[def.slot] || '∎', cx + size / 2, y - size / 2 + 1);
+        if (it.n > 1) { ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'right'; ctx.fillText('×' + it.n, cx + size - 1, y - 3); ctx.textAlign = 'center'; }
         cx += size + gap;
+      }
+      if (extra > 0) {
+        ctx.fillStyle = 'rgba(30,40,55,0.6)';
+        this._roundRect(ctx, cx, y - size, size, size, 4); ctx.fill();
+        ctx.strokeStyle = 'rgba(140,180,220,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#bcd8ec';
+        ctx.fillText('+' + extra, cx + size / 2, y - size / 2 + 1);
       }
     },
 
@@ -4128,7 +4747,7 @@ html, body {
       ctx.font = '12px monospace'; ctx.fillStyle = 'rgba(150,180,210,0.55)';
       ctx.fillText(`runs: ${RE.Save.data.runs}    deepest: sector ${RE.Save.data.bestSector}    best score: ${RE.Save.data.bestScore}`, W / 2, H - 40);
       ctx.font = '11px monospace'; ctx.fillStyle = 'rgba(120,150,180,0.45)';
-      ctx.fillText('WASD move · mouse aim/fire · E echo-pulse · Shift/Space dash · Esc pause', W / 2, H - 20);
+      ctx.fillText('WASD move · mouse aim/fire · E pulse · F flashlight · Shift/Space dash · RMB shield · Esc pause', W / 2, H - 20);
       this.end();
     },
 
@@ -4159,12 +4778,14 @@ html, body {
       const p = game.player; if (!p) return;
       ctx.textAlign = 'center'; ctx.font = '12px monospace';
       ctx.fillStyle = 'rgba(160,200,230,0.7)';
-      const parts = [];
-      for (const slot of ['weapon', 'mobility', 'utility', 'defense']) {
-        const id = p.modules[slot];
-        if (id) parts.push(RE.MODULES[id].name);
+      const seen = {}, parts = [];
+      for (const id of p.upgrades) {
+        if (seen[id] == null) { seen[id] = parts.length; parts.push({ name: RE.MODULES[id].name, n: 1 }); }
+        else parts[seen[id]].n++;
       }
-      ctx.fillText(parts.join('  ·  ') || 'no modules equipped', cx, y);
+      const text = parts.map(x => x.n > 1 ? x.name + ' ×' + x.n : x.name).join('  ·  ');
+      // Wrap so long stacking builds stay on-screen (centered lines).
+      this._wrap(ctx, text || 'no modules equipped', cx, y, 620, 16);
     },
 
     gameover(ctx, game) {
@@ -4253,7 +4874,7 @@ html, body {
         if (hover && game._mouseMoved) this.focus = idx;
         const focused = idx === this.focus;
         const active = focused || hover;
-        this._card(ctx, def, cx, cy, cw, ch, active);
+        this._card(ctx, def, cx, cy, cw, ch, active, game);
         const clicked = (hover && game.mousePressed) || (focused && (RE.Input.keyPressed('Enter') || RE.Input.keyPressed('Space')));
         if (clicked) { RE.Audio.sfx('equip'); game.chooseReward(def); }
         cx += cw + gap;
@@ -4265,9 +4886,17 @@ html, body {
       this.end();
     },
 
-    _card(ctx, def, x, y, w, h, active) {
+    _card(ctx, def, x, y, w, h, active, game) {
       const rarColors = { common: '#9fd8ff', uncommon: '#7affa0', rare: '#c08bff', legendary: '#ffcf5a' };
       const rc = rarColors[def.rarity] || '#9fd8ff';
+      // Ownership hint for the stacking model.
+      let tag = '';
+      const p = game && game.player;
+      if (p) {
+        if (def.group && p.hasGroup(def.group) && !p.hasModule(def.id)) tag = ' · SWAP';
+        else if (def.stack && p.hasModule(def.id)) tag = ' · STACK →×' + (p.upgradeCount(def.id) + 1);
+        else if (def.stack) tag = ' · STACKS';
+      }
       ctx.fillStyle = active ? 'rgba(30,50,66,0.9)' : 'rgba(18,30,42,0.85)';
       this._rr(ctx, x, y, w, h, 10); ctx.fill();
       ctx.strokeStyle = active ? rc : RE.M.rgba(rc, 0.4);
@@ -4280,7 +4909,7 @@ html, body {
       this._rr(ctx, x, y, w, 30, 10); ctx.fill();
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       ctx.font = '10px monospace'; ctx.fillStyle = rc;
-      ctx.fillText(def.slot.toUpperCase() + ' · ' + def.rarity.toUpperCase(), x + 12, y + 15);
+      ctx.fillText(def.slot.toUpperCase() + ' · ' + def.rarity.toUpperCase() + tag, x + 12, y + 15);
       // name
       ctx.font = 'bold 16px monospace'; ctx.fillStyle = '#eaffff';
       ctx.fillText(def.name, x + 12, y + 52);
@@ -4323,7 +4952,7 @@ html, body {
         if (hover && game._mouseMoved) this.focus = idx;
         const focused = idx === this.focus, active = focused || hover;
         if (def) {
-          this._card(ctx, def, cx, cy, cw, ch, active);
+          this._card(ctx, def, cx, cy, cw, ch, active, game);
           const cost = game.stationCost(def);
           const afford = game.salvage >= cost;
           ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace';
@@ -4664,6 +5293,7 @@ html, body {
       this.gen = gen;
       this.map = RE.Tilemap.make(gen, CFG.tile);
       RE.Echo.reset(this.map, CFG);
+      RE.Walls.reset(this.map, CFG);
       // apply echo hold bonus from modules
       RE.Echo.hold = CFG.player.echoTileHold + (this.player.stats.echoHoldAdd || 0);
 
@@ -4694,9 +5324,10 @@ html, body {
       this._introTips = [];
       if (n === 1 && !RE.Save.data.seenIntro) {
         this._introTips = [
-          { t: 1.6, text: 'The Hollow is dark. Press [E] to emit an echo pulse and glimpse the world.' },
-          { t: 6.5, text: 'Everything you do drains ENERGY — the ring around you. It recharges over time and at nodes.' },
-          { t: 12, text: 'Shots fired just after a pulse hit harder. Find the glowing exit shaft to descend.' },
+          { t: 1.6, text: 'The Hollow is dark. Press [E] for a big echo pulse — it lights the world for a few seconds, then recharges slowly.' },
+          { t: 7, text: 'Press [F] to toggle a flashlight: a steady cone that drains ENERGY (your ring). Use it to bridge the gaps between pulses.' },
+          { t: 13, text: 'Everything drains energy; it recharges over time and at nodes. Shots hit harder right after a pulse. Find the glowing exit to descend.' },
+          { t: 19, text: 'Your shots chip away at walls — carve tunnels and breach fortified nests for the loot inside.' },
         ];
         RE.Save.data.seenIntro = true; RE.Save.save();
       }
@@ -4757,7 +5388,7 @@ html, body {
         // one stored, stateful stream per station: initial stock + every reroll
         // draw sequentially from it, so a Daily seed reproduces the whole shop.
         st.rollRng = this.rng.fork('station:' + n + ':' + Math.round(pos.x) + ':' + Math.round(pos.y));
-        st.stock = { modules: this._rollModules(3, st.rollRng), repairUses: 0, refillUsed: false };
+        st.stock = { modules: this._rollModules(4, st.rollRng), repairUses: 0, refillUsed: false };
         this.pickups.push(st);
       }
       // core-shard (deeper = likelier; guaranteed on threshold)
@@ -4782,6 +5413,48 @@ html, body {
         const pods = 3 + Math.floor(n * 0.2);
         for (let i = 0; i < pods; i++) { const pos = cell(gen.pickFeatureCell(7, 5)); this.spawnHazard(pos.x, pos.y, rng.int(50, 78), 4, 0, '#7dffb0', { permanent: true }); }
       }
+
+      // ---- Fortified spawner nests (v1.4) ----
+      if (!isThreshold && n >= 2) {
+        let nFort = 0;
+        if (rng.next() < Math.min(0.7, 0.28 + n * 0.03)) nFort++;
+        if (n >= 6 && rng.next() < 0.3) nFort++;
+        for (let f = 0; f < nFort; f++) this._buildFortress(gen, rng);
+      }
+    },
+
+    // A fortified nest: a 5×5 ring of tough destructible walls (with a gap on
+    // each side so minions leak and you can push in), a Hive Node spawner at the
+    // core, and a GUARANTEED module cache inside as the prize for breaching it.
+    _buildFortress(gen, rng) {
+      const map = this.map, W = map.w, H = map.h;
+      const idx = gen.pickFeatureCell(10, 9);
+      const c = gen.cellXY(idx);
+      const tx0 = c.x, ty0 = c.y;
+      if (tx0 < 4 || ty0 < 4 || tx0 >= W - 4 || ty0 >= H - 4) return;
+      // never wall in the player's entry area
+      if (Math.abs(tx0 - gen.spawn.x) + Math.abs(ty0 - gen.spawn.y) < 8) return;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const tx = tx0 + dx, ty = ty0 + dy;
+          const ring = Math.max(Math.abs(dx), Math.abs(dy)) === 2;
+          if (ring) {
+            // leave a one-tile gate at the middle of each edge
+            if ((dx === 0 && Math.abs(dy) === 2) || (dy === 0 && Math.abs(dx) === 2)) { RE.Walls.clearTile(tx, ty); continue; }
+            RE.Walls.fortifyTile(tx, ty);
+          } else {
+            RE.Walls.clearTile(tx, ty);   // hollow interior
+          }
+        }
+      }
+      const ctr = map.centerOfTile(tx0, ty0);
+      const spawner = this.spawnEnemy('hive_spawner', ctr.x, ctr.y);
+      spawner.awake = false;
+      // guaranteed upgrade, tucked beside the node
+      const gp = map.centerOfTile(tx0 + 1, ty0);
+      const mod = RE.makePickup('module', gp.x, gp.y);
+      mod.rewardTitle = 'FORTRESS CACHE';
+      this.pickups.push(mod);
     },
 
     _scaleEnemy(e) {
@@ -4896,8 +5569,18 @@ html, body {
 
     hitStop(t) { this.hitStopT = Math.max(this.hitStopT, Math.min(t, CFG.hitStopMax)); },
 
+    damageWall(px, py, dmg) { RE.Walls.damageWorld(px, py, dmg); },
+
     // ---- Spawning ------------------------------------------------------
     spawnProjectile(opts) { this.projectiles.push(RE.makeProjectile(opts)); },
+    // Make + scale + wake + register an enemy at a position (spawners, hunters).
+    spawnEnemy(id, x, y, opts) {
+      opts = opts || {};
+      const e = this._scaleEnemy(RE.makeEnemy(id, x, y, opts.sector || this.sector, !!opts.elite));
+      if (opts.awake) e.awake = true;
+      this.enemies.push(e);
+      return e;
+    },
     spawnEnemyProjectile(x, y, vx, vy, dmg, color) {
       const pr = RE.makeProjectile({ x, y, vx, vy, damage: dmg, color, friendly: false, r: 5, life: 3 });
       this.projectiles.push(pr);
@@ -4938,7 +5621,7 @@ html, body {
         case 'energy': p.addEnergy(pickup.value); break;
         case 'hull': p.heal(pickup.value); RE.HUD.toast('+' + pickup.value + ' hull', { color: '#5affa0', life: 1.4 }); break;
         case 'shard': { const b = Math.max(1, Math.round(pickup.value * (this.salvageMul || 1))); this.runShards += b; this.score += b * 20; RE.HUD.toast('✦ core-shard recovered', { color: '#c0a0ff', life: 2.2, big: true }); break; }
-        case 'module': this.presentReward(this._rollModules(3, this.rng.fork('modcache:' + this.sector + ':' + Math.round(pickup.x) + ':' + Math.round(pickup.y))), 'MODULE CACHE'); break;
+        case 'module': this.presentReward(this._rollModules(4, this.rng.fork('modcache:' + this.sector + ':' + Math.round(pickup.x) + ':' + Math.round(pickup.y))), pickup.rewardTitle || 'MODULE CACHE'); break;
         case 'log': this._collectLog(pickup.data); break;
         default: break;
       }
@@ -4954,10 +5637,12 @@ html, body {
     },
 
     // Draw from a supplied deterministic stream (never the master this.rng, so
-    // kills/rerolls can't desync a Daily). Excludes already-equipped modules.
+    // kills/rerolls can't desync a Daily). Owned modules are excluded UNLESS
+    // they are stackable (those keep showing up so you can pile them on).
     _rollModules(count, rng) {
       rng = rng || this.rng.fork('roll:' + (this._rollN = (this._rollN || 0) + 1));
-      const all = Object.values(RE.MODULES).filter(m => !(this.player && this.player.hasModule(m.id)));
+      const p = this.player;
+      const all = Object.values(RE.MODULES).filter(m => !(p && p.hasModule(m.id) && !m.stack));
       const rareBoost = RE.Save.data.unlocks.raredrops ? 1.5 : 1;
       const weights = { common: 5, uncommon: 3, rare: 1.4 * rareBoost, legendary: 0.6 * rareBoost };
       const chosen = [], bag = all.slice();
@@ -5001,27 +5686,25 @@ html, body {
       if (this.salvage < 12) { RE.Audio.sfx('lowpower'); return; }
       this.salvage -= 12;
       const rng = this.station.rollRng || (this.station.rollRng = this.rng.fork('reroll:' + Math.round(this.station.x)));
-      this.station.stock.modules = this._rollModules(3, rng);
+      this.station.stock.modules = this._rollModules(4, rng);
       RE.Audio.sfx('ui');
     },
     stationBuy(def, idx) {
       const cost = { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60;
       if (this.salvage < cost) { RE.Audio.sfx('lowpower'); return; }
       this.salvage -= cost;
-      const prev = this.player.modules[def.slot];
-      this.player.equip(def.id);
+      const res = this.player.equip(def.id);
       this.station.stock.modules[idx] = null;
       RE.Audio.sfx('equip'); RE.HUD.toast('INSTALLED: ' + def.name, { color: '#ff8adf', life: 2.2, big: true });
-      if (prev && prev !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[prev].name, { color: 'rgba(200,200,200,0.7)', life: 1.8 });
+      if (res.replaced && res.replaced !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[res.replaced].name, { color: 'rgba(200,200,200,0.7)', life: 1.8 });
     },
     stationCost(def) { return { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60; },
 
     presentReward(choices, title) { this.rewardChoices = choices; this.rewardTitle = title || 'SALVAGE RECOVERED'; this.state = 'reward'; RE.Menus.focus = 0; },
     chooseReward(def) {
-      const prev = this.player.modules[def.slot];
-      this.player.equip(def.id);
+      const res = this.player.equip(def.id);
       RE.HUD.toast('EQUIPPED: ' + def.name, { color: '#ff8adf', life: 2.4, big: true });
-      if (prev && prev !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[prev].name, { color: 'rgba(200,200,200,0.7)', life: 2 });
+      if (res.replaced && res.replaced !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[res.replaced].name, { color: 'rgba(200,200,200,0.7)', life: 2 });
       this.rewardChoices = null; this.state = 'playing';
     },
     skipReward() { this.salvage += 15; this.score += 15; RE.HUD.toast('+15 salvage', { color: '#ffe27a', life: 1.6 }); this.rewardChoices = null; this.state = 'playing'; },
@@ -5100,6 +5783,7 @@ html, body {
       const eScale = this.enemyTimeScale;
 
       RE.Echo.update(dt, p);
+      RE.Walls.update(dt);
       p.update(dt, this);
 
       for (const e of this.enemies) if (e.alive) e.update(dt * eScale, this);
@@ -5374,7 +6058,9 @@ html, body {
           const wall = map.isWallTile(tx, ty);
           const sx = tx * T - camX, sy = ty * T - camY;
           if (wall) {
-            ctx.fillStyle = M.mixHex(b.fog, b.wall, Math.min(1, bright));
+            // Destructible walls read as a dark rainbow gauge of their HP.
+            const wallCol = RE.Walls.wallColor(tx, ty, b.wall);
+            ctx.fillStyle = M.mixHex(b.fog, wallCol, Math.min(1, bright));
             ctx.fillRect(sx, sy, T + 1, T + 1);
             if (bright > 0.25) { ctx.fillStyle = M.mixHex(b.fog, b.wallHi, Math.min(1, bright)); ctx.fillRect(sx, sy, T + 1, 3); ctx.fillRect(sx, sy, 3, T + 1); }
           } else {

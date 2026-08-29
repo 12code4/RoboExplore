@@ -126,6 +126,7 @@
           case 'mine': this._aiMine(dt, game, p, d); break;
           case 'stalker': this._aiStalker(dt, game, p, d); break;
           case 'eye': this._aiEye(dt, game, p, d); break;
+          case 'spawner': this._aiSpawner(dt, game, p, d); break;
           default: this._aiChaser(dt, game, p, d); break;
         }
 
@@ -377,6 +378,34 @@
         }
       },
 
+      // Hive Node — a fortified, immobile spawner: pumps out minions until it
+      // is destroyed. It sits enclosed by fortified (destructible) walls; the
+      // player must breach the nest for the guaranteed upgrade inside.
+      _aiSpawner(dt, game, p, d) {
+        this.vx = 0; this.vy = 0; this.vis = 1;
+        if (d < def.spawnRange) this.awake = true;
+        if (!this.awake) { this.fireCd = Math.max(this.fireCd, 0.5); return; }
+        this.fireCd -= dt;
+        if (this.fireCd > 0) return;
+        this.fireCd = def.spawnEvery;
+        this._children = (this._children || []).filter(c => c.alive);
+        if (this._children.length >= def.maxChildren || game.enemies.length > 60) return;
+        // biome-flavored light minions (fall back to Skitter)
+        let pool = (game.biome && game.biome.enemies) ? game.biome.enemies.filter(id => {
+          const dd = RE.ENEMIES[id]; return dd && dd.speed > 0 && (dd.danger || 1) <= 5 && dd.ai !== 'spawner';
+        }) : null;
+        if (!pool || !pool.length) pool = ['skitter'];
+        const id = pool[(Math.random() * pool.length) | 0];
+        const a = Math.random() * Math.PI * 2, rr = this.r + 6 + Math.random() * 10;
+        const c = game.spawnEnemy(id, this.x + Math.cos(a) * rr, this.y + Math.sin(a) * rr, { awake: true });
+        this._children.push(c);
+        RE.Echo.pulse(this.x, this.y, { maxR: 90, speed: 600, strength: 0.7 });
+        game.onPulse(this.x, this.y, 90);
+        Particles.burst(this.x, this.y, 10, { speed: 160, color: def.glow, life: 0.4, size: 3, kind: 'spark' });
+        RE.Audio.sfx('spawn');
+        game.camera.addTrauma(0.06);
+      },
+
       _beamDamage(dt, game, p, ang, arc, len, dmg) {
         const d = M.dist(this.x, this.y, p.x, p.y);
         if (d > len) return;
@@ -534,6 +563,14 @@
         else if (shape === 'wraith') { this._spikes(ctx, r, 8); }
         else if (shape === 'mine') { this._spikes(ctx, r, 5); }
         else if (shape === 'stalker') { this._spider(ctx, r * 1.1); }
+        else if (shape === 'spawner') {
+          this._poly(ctx, 8, r);
+          ctx.globalCompositeOperation = 'lighter';
+          const pl = 0.5 + 0.5 * Math.sin(this.wobble * 2);
+          ctx.fillStyle = RE.M.rgba(def.glow, 0.6 * pl);
+          ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
         else if (shape === 'eye') { this._eye(ctx, r); }
         else { ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
       },

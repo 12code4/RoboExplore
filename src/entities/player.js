@@ -16,8 +16,9 @@
       echoRangeMul: 1, echoBandMul: 1, echoHoldAdd: 0, echoCostAdd: 0, echoCdAdd: 0,
       twinPulse: false,
       markFromEcho: false, markDur: 3.5,   // Predator Lens: extends duration/sources only (no extra mult)
-      damageMul: 1, armorMul: 1, hullMaxAdd: 0,
+      damageMul: 1, armorMul: 1, hullMaxAdd: 0, wallDamageMul: 1,
       lightInnerMul: 1, lightOuterMul: 1,
+      flashRangeMul: 1, flashArcMul: 1, flashDrainMul: 1,
       magnetRange: 0, magnetBonus: 0,
       momentumRegen: false, momentumSpeed: 120, momentumBonus: 10,
       shieldHold: false, retaliate: 0, retaliateStun: 0.4, retaliateEnergy: 8,
@@ -57,25 +58,40 @@
       barrierTimer: 0,
       bulwarkShield: 0, bulwarkTimer: 0,
       thruster: 0, walkCycle: 0,
-      modules: { weapon: null, mobility: null, utility: null, defense: null },
+      flashOn: false,
+      upgrades: [],   // stacking loadout: list of equipped module ids
       stats: baseStats(),
       speed: 0,
       _lowPing: false, retaliateCd: 0,
 
+      // Install a module. Modules stack; within a conflict `group` a new module
+      // replaces the old (two guns can't coexist). Returns {added, replaced}.
       equip(moduleId) {
         const def = RE.MODULES[moduleId];
-        if (!def) return false;
-        this.modules[def.slot] = moduleId;
+        if (!def) return { added: false, replaced: null };
+        let replaced = null;
+        if (def.group) {
+          // replace any existing member of the same conflict group
+          for (let i = 0; i < this.upgrades.length; i++) {
+            const od = RE.MODULES[this.upgrades[i]];
+            if (od && od.group === def.group) { replaced = this.upgrades[i]; this.upgrades.splice(i, 1); break; }
+          }
+          this.upgrades.push(moduleId);
+        } else if (def.stack) {
+          this.upgrades.push(moduleId);   // duplicates allowed: they compound
+        } else {
+          if (!this.upgrades.includes(moduleId)) this.upgrades.push(moduleId);
+        }
         this.recompute();
-        return true;
+        return { added: true, replaced };
       },
-      hasModule(id) { return Object.values(this.modules).includes(id); },
+      hasModule(id) { return this.upgrades.includes(id); },
+      hasGroup(group) { return this.upgrades.some(id => RE.MODULES[id] && RE.MODULES[id].group === group); },
+      upgradeCount(id) { let n = 0; for (const u of this.upgrades) if (u === id) n++; return n; },
 
       recompute() {
         this.stats = baseStats();
-        for (const slot of Object.keys(this.modules)) {
-          const id = this.modules[slot];
-          if (!id) continue;
+        for (const id of this.upgrades) {
           const def = RE.MODULES[id];
           if (def && def.apply) def.apply(this.stats, this);
         }
@@ -167,6 +183,29 @@
         game.onPulse(this.x, this.y, 130);
       },
 
+      // ---- Flashlight (steady directional cone; drains the battery) -----
+      toggleFlashlight() {
+        this.flashOn = !this.flashOn;
+        RE.Audio.sfx(this.flashOn ? 'ui' : 'ui_move');
+        if (this.flashOn && this.energy <= 0) { this.flashOn = false; RE.Audio.sfx('lowpower'); }
+      },
+      flashParams() {
+        return {
+          range: CFG.player.flashRange * this.stats.flashRangeMul,
+          half: CFG.player.flashHalfArc * this.stats.flashArcMul,
+        };
+      },
+      _flashlight(dt, game) {
+        if (!this.flashOn) return;
+        if (this.energy <= 0) { this.flashOn = false; RE.Audio.sfx('lowpower'); return; }
+        const drain = CFG.player.flashDrain * this.stats.flashDrainMul * dt;
+        this.energy = Math.max(0, this.energy - drain);
+        this.energyDelay = Math.max(this.energyDelay, 0.3);   // suppress passive regen while lit
+        const { range, half } = this.flashParams();
+        RE.Echo.washCone(this.x, this.y, this.facing, range, half, CFG.player.flashLevel, game.map);
+        if (this.energy <= 0) { this.flashOn = false; RE.Audio.sfx('lowpower'); }
+      },
+
       // ---- Echo pulse (with Echo-Charge + Twin-Pulse) ------------------
       echo(game) {
         if (this.echoCd > 0) return;
@@ -242,7 +281,8 @@
             life: w.life, color: w.color, friendly: true,
             pierce: (w.pierce || 0) + bonusPierce, bounce: w.bounce || 0,
             illuminate: w.illuminate || 0, splash, splashDmg, knockback: knock,
-            homing: w.homing, homTurn: w.homTurn,
+            homing: w.homing, homTurn: w.homTurn, homRange: w.homRange,
+            wallDamage: w.damage * this.stats.wallDamageMul,
           });
         }
         Particles.burst(this.x + Math.cos(this.facing) * this.radius, this.y + Math.sin(this.facing) * this.radius,
@@ -264,6 +304,7 @@
             r: w.radius, damage: w.damage * this.stats.damageMul,
             life: w.life, color: w.color, friendly: true,
             pierce: 999, illuminate: 40, beam: true,
+            wallDamage: w.damage * this.stats.wallDamageMul,
           });
           RE.Audio.sfx('shoot_heavy');
           game.camera.addTrauma(0.22);
@@ -375,10 +416,15 @@
         // Actions.
         if (RE.Input.pressed('echo')) this.echo(game);
         if (RE.Input.pressed('dash')) this.dash(game);
+        if (RE.Input.pressed('flashlight')) this.toggleFlashlight();
 
-        // Shield hold (Deflector).
+        // Flashlight: a steady directional cone that drains the battery.
+        this._flashlight(dt, game);
+
+        // Shield hold (Deflector) — held on right-mouse (or [C]).
         this.shieldActive = false;
-        if (this.stats.shieldHold && RE.Input.down('shield') && this.energy > 0) {
+        const shieldHeld = RE.Input.mouse.right || RE.Input.down('shield');
+        if (this.stats.shieldHold && shieldHeld && this.energy > 0) {
           this.shieldActive = true;
           this.spend(10 * dt);
           this.shieldAngle = this.facing;
@@ -475,6 +521,20 @@
         halo.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = halo;
         ctx.beginPath(); ctx.arc(0, 0, lr, 0, Math.PI * 2); ctx.fill();
+
+        // Flashlight cone glow (warm, in the aim direction).
+        if (this.flashOn) {
+          const { range, half } = this.flashParams();
+          const cone = ctx.createRadialGradient(0, 0, 0, 0, 0, range);
+          cone.addColorStop(0, 'rgba(255,244,210,0.20)');
+          cone.addColorStop(0.6, 'rgba(255,232,170,0.08)');
+          cone.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = cone;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, range, this.facing - half, this.facing + half);
+          ctx.closePath(); ctx.fill();
+        }
         ctx.globalCompositeOperation = 'source-over';
 
         // Deflector shield arc.

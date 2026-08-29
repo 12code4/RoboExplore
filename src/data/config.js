@@ -5,7 +5,7 @@
   'use strict';
 
   const CFG = {
-    version: '1.3.2',
+    version: '1.4.0',
 
     // Rendering ----------------------------------------------------------
     viewW: 960,
@@ -14,6 +14,16 @@
 
     // World --------------------------------------------------------------
     tile: 28,
+
+    // Destructible walls (v1.4) -----------------------------------------
+    walls: {
+      baseHp: 240,         // very high: digging a tunnel is deliberate work
+      regenDelay: 15,      // seconds without damage before a wall heals
+      regenFrac: 0.02,     // fraction of max HP restored per second
+      spreadFrac: 0.15,    // share of damage bled to surrounding walls
+      spreadSteps: 2,      // how many neighbor hops the bleed travels
+      fortifyMul: 2.4,     // HP multiplier for fortress walls
+    },
 
     // Player -------------------------------------------------------------
     player: {
@@ -29,19 +39,24 @@
       dashCost: 18,
       dashCooldown: 0.45,
       dashExitInherit: 0.40,
-      // echo pulse
-      echoCost: 10,
-      echoCooldown: 0.30,
-      echoSpeed: 560,      // ring growth px/s
-      echoMaxRadius: 360,
-      echoBandWidth: 30,   // wash band behind the front
-      echoTileHold: 0.4,   // tiles stay full-bright this long
-      echoTileFadeTau: 1.4,// then decay with this exponential tau
+      // echo pulse — a rare, powerful, long-lingering reveal (v1.4)
+      echoCost: 14,
+      echoCooldown: 8.0,   // big cooldown: pulse is a deliberate, tactical sweep
+      echoSpeed: 620,      // ring growth px/s
+      echoMaxRadius: 420,
+      echoBandWidth: 34,   // wash band behind the front
+      echoTileHold: 3.5,   // tiles stay full-bright this long (then fade ~5s total)
+      echoTileFadeTau: 1.0,// then decay with this exponential tau
       ghostFloor: 0.06,    // permanent dim memory of ever-seen tiles
       enemyVisFade: 0.8,   // seconds for enemy reveal to fade
+      // flashlight — a steady directional cone that drains the battery (v1.4)
+      flashDrain: 7,       // energy/s while lit
+      flashRange: 220,     // cone reach (px)
+      flashHalfArc: 0.55,  // half-angle of the cone (radians) → ~63° spread
+      flashLevel: 0.92,    // brightness the cone washes tiles to
       // passive light
-      lightInner: 46,
-      lightOuter: 92,
+      lightInner: 40,
+      lightOuter: 82,
       // hull
       hullMax: 100,
       hitIframes: 0.6,

@@ -33,12 +33,19 @@ can double-click or share. Rebuild it any time with `npm run build`.
 | --- | --- |
 | Move | `W A S D` / arrow keys |
 | Aim & fire | Mouse |
-| Echo pulse | `E` (or `Q`) |
+| Echo pulse | `E` (or `Q`) — a big reveal on an 8s cooldown that lingers |
+| Flashlight | `F` — toggle a steady cone that drains your battery |
 | Dash | `Shift` / `Space` |
+| Deflector shield | hold **Right-Mouse** (or `C`) |
 | Pause | `Esc` / `P` |
 | Sound toggle | via title / pause menu |
 
 Gamepad and touch input are also supported.
+
+**Seeing in the dark (v1.4).** Sight is a rhythm now: fire off an **echo pulse**
+for a wide, several-second reveal, then bridge the dark with your **flashlight**
+cone until the pulse recharges. Your shots also **carve the walls** — dig
+shortcuts, or breach a fortified nest for the loot inside.
 
 ## Loop
 
@@ -54,15 +61,20 @@ Gamepad and touch input are also supported.
 - **15 sectors across 5 biomes** — the echo-arc from honest dark, to a
   bioluminescent grotto, to machinery that jams your sight, to echo-conducting
   ice, to a self-lit furnace where echo becomes a weapon.
-- **11 echo-aware enemies**, each built around light and darkness — invisible
+- **12 echo-aware enemies**, each built around light and darkness — invisible
   ambushers, weeping-angel hunters that freeze when lit, pulse-drawn swarms,
-  phase predators, and an open-to-damage mini-boss eye.
+  phase predators, fortified Hive Node spawners, and an open-to-damage mini-boss eye.
 - **5 multi-phase bosses** with self-lit, telegraphed attacks — one guards each
   biome, culminating in AXIS, the Hollow Heart.
-- **18 modules** across weapon / mobility / utility / defense, with real
-  trade-offs and synergies, plus a persistent **Reconstructor** upgrade tree.
+- **Destructible walls** — a dark-rainbow HP gauge you can carve through; blast
+  tunnels and breach **fortified spawner nests** for the guaranteed cache inside.
+- **A stacking loadout** — 29 modules across weapon / mobility / utility / defense
+  that *accumulate*: their effects compound, only direct conflicts swap, and many
+  can be stacked for a build-defining pile. Plus a persistent **Reconstructor** tree.
 - **Signature twists**: Echo-Resonance (pulses mark enemies), Echo-Charge (shots
   hit harder right after a pulse), Echo-Return pings, and enemies that hear you.
+- **Generative music** — eerie instrumental phrases intermingled into ever-varying
+  looping tracks, tuned per biome.
 - 16 discoverable **log fragments**, a Codex, and two endings.
 - **Replayability**: a **Daily Run** (one deterministic seed shared by everyone,
   with a per-day best) and **The Deep Descent** — New Game+ difficulty tiers that

@@ -73,6 +73,13 @@
       color: '#8a3244', glow: '#ff6a8a', salvage: [6, 10], firstSector: 5,
       crouch: 0.6, pounceSpeed: 300, pounceMax: 200, pounceDamage: 24, recover: 1.2, pounceEvery: 5,
     },
+    hive_spawner: {
+      id: 'hive_spawner', name: 'Hive Node', ai: 'spawner', shape: 'spawner',
+      hp: 150, radius: 17, speed: 0, touchDamage: 0, danger: 7,
+      color: '#c04fa8', glow: '#ff8ad6', salvage: [7, 12], firstSector: 2,
+      selfLit: true,   // a menacing beacon inside its fort
+      spawnEvery: 3.2, maxChildren: 4, spawnRange: 520, wakeOnPing: true,
+    },
     leviathan_eye: {
       id: 'leviathan_eye', name: 'Abyssal Eye', ai: 'eye', shape: 'eye',
       hp: 240, radius: 30, speed: 40, touchDamage: 0, danger: 9,

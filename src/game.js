@@ -120,6 +120,7 @@
       this.gen = gen;
       this.map = RE.Tilemap.make(gen, CFG.tile);
       RE.Echo.reset(this.map, CFG);
+      RE.Walls.reset(this.map, CFG);
       // apply echo hold bonus from modules
       RE.Echo.hold = CFG.player.echoTileHold + (this.player.stats.echoHoldAdd || 0);
 
@@ -150,9 +151,10 @@
       this._introTips = [];
       if (n === 1 && !RE.Save.data.seenIntro) {
         this._introTips = [
-          { t: 1.6, text: 'The Hollow is dark. Press [E] to emit an echo pulse and glimpse the world.' },
-          { t: 6.5, text: 'Everything you do drains ENERGY — the ring around you. It recharges over time and at nodes.' },
-          { t: 12, text: 'Shots fired just after a pulse hit harder. Find the glowing exit shaft to descend.' },
+          { t: 1.6, text: 'The Hollow is dark. Press [E] for a big echo pulse — it lights the world for a few seconds, then recharges slowly.' },
+          { t: 7, text: 'Press [F] to toggle a flashlight: a steady cone that drains ENERGY (your ring). Use it to bridge the gaps between pulses.' },
+          { t: 13, text: 'Everything drains energy; it recharges over time and at nodes. Shots hit harder right after a pulse. Find the glowing exit to descend.' },
+          { t: 19, text: 'Your shots chip away at walls — carve tunnels and breach fortified nests for the loot inside.' },
         ];
         RE.Save.data.seenIntro = true; RE.Save.save();
       }
@@ -213,7 +215,7 @@
         // one stored, stateful stream per station: initial stock + every reroll
         // draw sequentially from it, so a Daily seed reproduces the whole shop.
         st.rollRng = this.rng.fork('station:' + n + ':' + Math.round(pos.x) + ':' + Math.round(pos.y));
-        st.stock = { modules: this._rollModules(3, st.rollRng), repairUses: 0, refillUsed: false };
+        st.stock = { modules: this._rollModules(4, st.rollRng), repairUses: 0, refillUsed: false };
         this.pickups.push(st);
       }
       // core-shard (deeper = likelier; guaranteed on threshold)
@@ -238,6 +240,48 @@
         const pods = 3 + Math.floor(n * 0.2);
         for (let i = 0; i < pods; i++) { const pos = cell(gen.pickFeatureCell(7, 5)); this.spawnHazard(pos.x, pos.y, rng.int(50, 78), 4, 0, '#7dffb0', { permanent: true }); }
       }
+
+      // ---- Fortified spawner nests (v1.4) ----
+      if (!isThreshold && n >= 2) {
+        let nFort = 0;
+        if (rng.next() < Math.min(0.7, 0.28 + n * 0.03)) nFort++;
+        if (n >= 6 && rng.next() < 0.3) nFort++;
+        for (let f = 0; f < nFort; f++) this._buildFortress(gen, rng);
+      }
+    },
+
+    // A fortified nest: a 5×5 ring of tough destructible walls (with a gap on
+    // each side so minions leak and you can push in), a Hive Node spawner at the
+    // core, and a GUARANTEED module cache inside as the prize for breaching it.
+    _buildFortress(gen, rng) {
+      const map = this.map, W = map.w, H = map.h;
+      const idx = gen.pickFeatureCell(10, 9);
+      const c = gen.cellXY(idx);
+      const tx0 = c.x, ty0 = c.y;
+      if (tx0 < 4 || ty0 < 4 || tx0 >= W - 4 || ty0 >= H - 4) return;
+      // never wall in the player's entry area
+      if (Math.abs(tx0 - gen.spawn.x) + Math.abs(ty0 - gen.spawn.y) < 8) return;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const tx = tx0 + dx, ty = ty0 + dy;
+          const ring = Math.max(Math.abs(dx), Math.abs(dy)) === 2;
+          if (ring) {
+            // leave a one-tile gate at the middle of each edge
+            if ((dx === 0 && Math.abs(dy) === 2) || (dy === 0 && Math.abs(dx) === 2)) { RE.Walls.clearTile(tx, ty); continue; }
+            RE.Walls.fortifyTile(tx, ty);
+          } else {
+            RE.Walls.clearTile(tx, ty);   // hollow interior
+          }
+        }
+      }
+      const ctr = map.centerOfTile(tx0, ty0);
+      const spawner = this.spawnEnemy('hive_spawner', ctr.x, ctr.y);
+      spawner.awake = false;
+      // guaranteed upgrade, tucked beside the node
+      const gp = map.centerOfTile(tx0 + 1, ty0);
+      const mod = RE.makePickup('module', gp.x, gp.y);
+      mod.rewardTitle = 'FORTRESS CACHE';
+      this.pickups.push(mod);
     },
 
     _scaleEnemy(e) {
@@ -352,8 +396,18 @@
 
     hitStop(t) { this.hitStopT = Math.max(this.hitStopT, Math.min(t, CFG.hitStopMax)); },
 
+    damageWall(px, py, dmg) { RE.Walls.damageWorld(px, py, dmg); },
+
     // ---- Spawning ------------------------------------------------------
     spawnProjectile(opts) { this.projectiles.push(RE.makeProjectile(opts)); },
+    // Make + scale + wake + register an enemy at a position (spawners, hunters).
+    spawnEnemy(id, x, y, opts) {
+      opts = opts || {};
+      const e = this._scaleEnemy(RE.makeEnemy(id, x, y, opts.sector || this.sector, !!opts.elite));
+      if (opts.awake) e.awake = true;
+      this.enemies.push(e);
+      return e;
+    },
     spawnEnemyProjectile(x, y, vx, vy, dmg, color) {
       const pr = RE.makeProjectile({ x, y, vx, vy, damage: dmg, color, friendly: false, r: 5, life: 3 });
       this.projectiles.push(pr);
@@ -394,7 +448,7 @@
         case 'energy': p.addEnergy(pickup.value); break;
         case 'hull': p.heal(pickup.value); RE.HUD.toast('+' + pickup.value + ' hull', { color: '#5affa0', life: 1.4 }); break;
         case 'shard': { const b = Math.max(1, Math.round(pickup.value * (this.salvageMul || 1))); this.runShards += b; this.score += b * 20; RE.HUD.toast('✦ core-shard recovered', { color: '#c0a0ff', life: 2.2, big: true }); break; }
-        case 'module': this.presentReward(this._rollModules(3, this.rng.fork('modcache:' + this.sector + ':' + Math.round(pickup.x) + ':' + Math.round(pickup.y))), 'MODULE CACHE'); break;
+        case 'module': this.presentReward(this._rollModules(4, this.rng.fork('modcache:' + this.sector + ':' + Math.round(pickup.x) + ':' + Math.round(pickup.y))), pickup.rewardTitle || 'MODULE CACHE'); break;
         case 'log': this._collectLog(pickup.data); break;
         default: break;
       }
@@ -410,10 +464,12 @@
     },
 
     // Draw from a supplied deterministic stream (never the master this.rng, so
-    // kills/rerolls can't desync a Daily). Excludes already-equipped modules.
+    // kills/rerolls can't desync a Daily). Owned modules are excluded UNLESS
+    // they are stackable (those keep showing up so you can pile them on).
     _rollModules(count, rng) {
       rng = rng || this.rng.fork('roll:' + (this._rollN = (this._rollN || 0) + 1));
-      const all = Object.values(RE.MODULES).filter(m => !(this.player && this.player.hasModule(m.id)));
+      const p = this.player;
+      const all = Object.values(RE.MODULES).filter(m => !(p && p.hasModule(m.id) && !m.stack));
       const rareBoost = RE.Save.data.unlocks.raredrops ? 1.5 : 1;
       const weights = { common: 5, uncommon: 3, rare: 1.4 * rareBoost, legendary: 0.6 * rareBoost };
       const chosen = [], bag = all.slice();
@@ -457,27 +513,25 @@
       if (this.salvage < 12) { RE.Audio.sfx('lowpower'); return; }
       this.salvage -= 12;
       const rng = this.station.rollRng || (this.station.rollRng = this.rng.fork('reroll:' + Math.round(this.station.x)));
-      this.station.stock.modules = this._rollModules(3, rng);
+      this.station.stock.modules = this._rollModules(4, rng);
       RE.Audio.sfx('ui');
     },
     stationBuy(def, idx) {
       const cost = { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60;
       if (this.salvage < cost) { RE.Audio.sfx('lowpower'); return; }
       this.salvage -= cost;
-      const prev = this.player.modules[def.slot];
-      this.player.equip(def.id);
+      const res = this.player.equip(def.id);
       this.station.stock.modules[idx] = null;
       RE.Audio.sfx('equip'); RE.HUD.toast('INSTALLED: ' + def.name, { color: '#ff8adf', life: 2.2, big: true });
-      if (prev && prev !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[prev].name, { color: 'rgba(200,200,200,0.7)', life: 1.8 });
+      if (res.replaced && res.replaced !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[res.replaced].name, { color: 'rgba(200,200,200,0.7)', life: 1.8 });
     },
     stationCost(def) { return { common: 40, uncommon: 75, rare: 130, legendary: 200 }[def.rarity] || 60; },
 
     presentReward(choices, title) { this.rewardChoices = choices; this.rewardTitle = title || 'SALVAGE RECOVERED'; this.state = 'reward'; RE.Menus.focus = 0; },
     chooseReward(def) {
-      const prev = this.player.modules[def.slot];
-      this.player.equip(def.id);
+      const res = this.player.equip(def.id);
       RE.HUD.toast('EQUIPPED: ' + def.name, { color: '#ff8adf', life: 2.4, big: true });
-      if (prev && prev !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[prev].name, { color: 'rgba(200,200,200,0.7)', life: 2 });
+      if (res.replaced && res.replaced !== def.id) RE.HUD.toast('replaced ' + RE.MODULES[res.replaced].name, { color: 'rgba(200,200,200,0.7)', life: 2 });
       this.rewardChoices = null; this.state = 'playing';
     },
     skipReward() { this.salvage += 15; this.score += 15; RE.HUD.toast('+15 salvage', { color: '#ffe27a', life: 1.6 }); this.rewardChoices = null; this.state = 'playing'; },
@@ -556,6 +610,7 @@
       const eScale = this.enemyTimeScale;
 
       RE.Echo.update(dt, p);
+      RE.Walls.update(dt);
       p.update(dt, this);
 
       for (const e of this.enemies) if (e.alive) e.update(dt * eScale, this);
@@ -830,7 +885,9 @@
           const wall = map.isWallTile(tx, ty);
           const sx = tx * T - camX, sy = ty * T - camY;
           if (wall) {
-            ctx.fillStyle = M.mixHex(b.fog, b.wall, Math.min(1, bright));
+            // Destructible walls read as a dark rainbow gauge of their HP.
+            const wallCol = RE.Walls.wallColor(tx, ty, b.wall);
+            ctx.fillStyle = M.mixHex(b.fog, wallCol, Math.min(1, bright));
             ctx.fillRect(sx, sy, T + 1, T + 1);
             if (bright > 0.25) { ctx.fillStyle = M.mixHex(b.fog, b.wallHi, Math.min(1, bright)); ctx.fillRect(sx, sy, T + 1, 3); ctx.fillRect(sx, sy, 3, T + 1); }
           } else {

@@ -601,3 +601,53 @@ Goal: a complete, replayable run S1–9 with meta-progression, three biomes, one
 - Additional log fragments beyond 16, extra cosmetic core-glow, gamepad/touch refinement, accessibility options.
 
 These extend replay depth after the core game is complete; none are required for a coherent, satisfying 1.0.
+
+---
+
+## 16. v1.4 ADDENDUM — "THE CARVED DARK" (post-1.0)
+
+This addendum records the design decisions for the v1.4.0 update. Where it
+refines earlier constants (sight economy, loadout model), **it supersedes them.**
+
+### 16.1 Destructible terrain
+Every wall tile carries HP (`CFG.walls.baseHp = 240`; fortress walls ×2.4).
+Friendly fire deposits its damage into the struck wall; **15%** of each hit
+bleeds to the 8-neighbourhood, recursing at most **2 hops** (bounded so late
+hops never chase vanishing decimals). A wall at 0 HP is carved to FLOOR — a
+permanent tunnel (`map.grid` is mutated, so collision/echo/pathing update at
+once). Damaged-but-standing walls regenerate **2%/s after a 15s lull**, so
+breaching demands sustained fire, not a stray shot. The 2-tile border is
+indestructible (the void stays sealed). Walls render as a **dark rainbow** HP
+gauge: near-black whole → purple → blue → green → orange → red as they give.
+
+### 16.2 Sight economy (revised)
+The pulse becomes a **deliberate tactical sweep**: 8s cooldown, wide radius, its
+reveal **lingers ~5s** (`echoTileHold 3.5`, `tau 1.0`). Between pulses you hold a
+**flashlight** — a directional cone (occluded by walls) that drains the battery
+(`flashDrain 7/s`). Passive light is dimmer than before. The rhythm is now
+*pulse (big, rare) → flashlight (steady, costly) → pulse.* Deflector shield moves
+to right-mouse to free **F** for the light.
+
+### 16.3 Stacking loadout (revised from the 4-slot model)
+Modules no longer overwrite by slot. `player.upgrades[]` **accumulates**; effects
+compose. A module may declare a conflict **`group`** (`gun`, `dash`) — a new one
+replaces the old within that group (the "shotgun vs heat-seeker" case). Modules
+tagged **`stack: true`** allow duplicates and are re-offered so a run can pile
+them up. Reward/Reconstructor screens offer **4** choices. New stackable parts:
+Overcharge Coil, Breaker Rounds, Grip Treads, Ablative Plating, Reserve Cells,
+Floodlight Rig, Lumen Plating (29 modules total).
+
+### 16.4 Fortified spawner nests
+The **Hive Node** (`ai: 'spawner'`) is an immobile, self-lit nest that pumps out
+biome-appropriate minions (capped) until destroyed. It generates inside a 5×5 ring
+of **fortified destructible walls** (a gate on each side so minions leak and you
+can push in), with a **guaranteed module cache** at its heart — the reward for
+breaching. 0–2 per non-threshold sector from S2.
+
+### 16.5 Generative music
+The static per-biome drone gains a **phrase director**: a lookahead scheduler
+intermingles ~20–40s instrumental phrases — music-box figures, inharmonic bells,
+bowed pad swells, low tolls, breathy whispers — in ever-varying order over a
+biome-tuned drone bed (minor / harmonic-minor / phrygian / whole-tone / octatonic).
+Combat biases toward tense tolls and pads; calm toward melodic boxes. Everything
+routes through the intensity-controlled music bus; the boss layer stacks on top.

@@ -62,6 +62,22 @@ function assert(cond, msg) { if (!cond) throw new Error('ASSERT FAILED: ' + msg)
   assert(run.enemies > 0, 'enemies spawned');
   assert(run.floors > 500, 'cave has open space');
 
+  // v1.4 systems present and wired.
+  const v14 = await page.evaluate(() => {
+    const g = RE.Game, map = g.map, W = map.w, H = map.h;
+    let wallHp = 0;
+    for (let i = 0; i < map.grid.length && !wallHp; i++) if (map.grid[i] === map.gen.WALL && isFinite(RE.Walls.max[i]) && RE.Walls.max[i] > 0) wallHp = RE.Walls.max[i];
+    g.player.energy = g.player.energyMax; g.player.flashOn = false; g.player.toggleFlashlight();
+    const flashOn = g.player.flashOn;
+    const before = g.player.upgrades.length; g.player.equip('d-plating'); g.player.equip('d-plating');
+    const stacked = g.player.upgradeCount('d-plating');
+    g.player.flashOn = false;
+    return { hasWalls: !!RE.Walls.hp, wallHp, flashOn, stacked };
+  });
+  assert(v14.hasWalls && v14.wallHp > 100, 'destructible walls have HP');
+  assert(v14.flashOn, 'flashlight toggles on');
+  assert(v14.stacked === 2, 'stackable upgrades stack');
+
   await page.mouse.move(900, 360);
   await page.keyboard.down('KeyW');
   await page.mouse.down();

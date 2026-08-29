@@ -28,6 +28,8 @@
       beam: !!opts.beam,
       homing: !!opts.homing,
       homTurn: opts.homTurn || 4,
+      homRange: opts.homRange || 1e9,   // max seek distance (0/undefined => unlimited)
+      wallDamage: opts.wallDamage != null ? opts.wallDamage : (opts.friendly ? (opts.damage || 8) : 0),
       hitSet: null,
       trail: 0,
       onExpire: opts.onExpire || null,
@@ -36,9 +38,9 @@
       update(dt, game) {
         this.life += dt;
         if (this.life >= this.maxLife) { this.alive = false; if (this.onExpire) this.onExpire(); return; }
-        // homing: steer toward the nearest living enemy
+        // homing: steer toward the nearest living enemy within seek range
         if (this.homing && this.friendly && game.enemies) {
-          let best = null, bd = 1e9;
+          let best = null, bd = this.homRange * this.homRange;
           for (const e of game.enemies) { if (!e.alive) continue; const dd = (e.x - this.x) * (e.x - this.x) + (e.y - this.y) * (e.y - this.y); if (dd < bd) { bd = dd; best = e; } }
           if (best) {
             const desired = Math.atan2(best.y - this.y, best.x - this.x);
@@ -50,6 +52,8 @@
         }
         const nx = this.x + this.vx * dt, ny = this.y + this.vy * dt;
         if (game.map.isWallPx(nx, ny)) {
+          // Friendly shots carve the Hollow: deposit damage into the struck wall.
+          if (this.wallDamage > 0 && game.damageWall) game.damageWall(nx, ny, this.wallDamage * (this.bounce > 0 ? 0.3 : 1));
           if (this.bounce > 0) {
             // reflect off the offending axis
             const hitX = game.map.isWallPx(this.x + this.vx * dt, this.y);

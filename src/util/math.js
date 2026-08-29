@@ -76,10 +76,32 @@
     const bl = Math.round(lerp(a.b, b.b, t));
     return `rgb(${r},${g},${bl})`;
   }
+  // Blend two hex colors, returning a hex string (composable with mixHex).
+  function mixHexHex(hexA, hexB, t) {
+    const a = hexToRgb(hexA), b = hexToRgb(hexB);
+    const to2 = (n) => Math.round(clamp(n, 0, 255)).toString(16).padStart(2, '0');
+    return '#' + to2(lerp(a.r, b.r, t)) + to2(lerp(a.g, b.g, t)) + to2(lerp(a.b, b.b, t));
+  }
+  // HSL -> hex. h in [0,360), s/l in [0,1].
+  function hslHex(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; }
+    else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; }
+    else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; }
+    else { r = c; b = x; }
+    const to2 = (n) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+    return '#' + to2(r) + to2(g) + to2(b);
+  }
 
   RE.M = {
     TAU, clamp, lerp, invLerp, damp, dist, dist2, angleDiff, rotateToward,
-    ease, circleOverlap, approach, hexToRgb, rgba, mixHex,
+    ease, circleOverlap, approach, hexToRgb, rgba, mixHex, mixHexHex, hslHex,
     PI: Math.PI,
   };
 })(window.RE = window.RE || {});

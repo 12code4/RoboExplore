@@ -109,7 +109,7 @@
       ctx.font = '12px monospace'; ctx.fillStyle = 'rgba(150,180,210,0.55)';
       ctx.fillText(`runs: ${RE.Save.data.runs}    deepest: sector ${RE.Save.data.bestSector}    best score: ${RE.Save.data.bestScore}`, W / 2, H - 40);
       ctx.font = '11px monospace'; ctx.fillStyle = 'rgba(120,150,180,0.45)';
-      ctx.fillText('WASD move · mouse aim/fire · E echo-pulse · Shift/Space dash · Esc pause', W / 2, H - 20);
+      ctx.fillText('WASD move · mouse aim/fire · E pulse · F flashlight · Shift/Space dash · RMB shield · Esc pause', W / 2, H - 20);
       this.end();
     },
 
@@ -140,12 +140,14 @@
       const p = game.player; if (!p) return;
       ctx.textAlign = 'center'; ctx.font = '12px monospace';
       ctx.fillStyle = 'rgba(160,200,230,0.7)';
-      const parts = [];
-      for (const slot of ['weapon', 'mobility', 'utility', 'defense']) {
-        const id = p.modules[slot];
-        if (id) parts.push(RE.MODULES[id].name);
+      const seen = {}, parts = [];
+      for (const id of p.upgrades) {
+        if (seen[id] == null) { seen[id] = parts.length; parts.push({ name: RE.MODULES[id].name, n: 1 }); }
+        else parts[seen[id]].n++;
       }
-      ctx.fillText(parts.join('  ·  ') || 'no modules equipped', cx, y);
+      const text = parts.map(x => x.n > 1 ? x.name + ' ×' + x.n : x.name).join('  ·  ');
+      // Wrap so long stacking builds stay on-screen (centered lines).
+      this._wrap(ctx, text || 'no modules equipped', cx, y, 620, 16);
     },
 
     gameover(ctx, game) {
@@ -234,7 +236,7 @@
         if (hover && game._mouseMoved) this.focus = idx;
         const focused = idx === this.focus;
         const active = focused || hover;
-        this._card(ctx, def, cx, cy, cw, ch, active);
+        this._card(ctx, def, cx, cy, cw, ch, active, game);
         const clicked = (hover && game.mousePressed) || (focused && (RE.Input.keyPressed('Enter') || RE.Input.keyPressed('Space')));
         if (clicked) { RE.Audio.sfx('equip'); game.chooseReward(def); }
         cx += cw + gap;
@@ -246,9 +248,17 @@
       this.end();
     },
 
-    _card(ctx, def, x, y, w, h, active) {
+    _card(ctx, def, x, y, w, h, active, game) {
       const rarColors = { common: '#9fd8ff', uncommon: '#7affa0', rare: '#c08bff', legendary: '#ffcf5a' };
       const rc = rarColors[def.rarity] || '#9fd8ff';
+      // Ownership hint for the stacking model.
+      let tag = '';
+      const p = game && game.player;
+      if (p) {
+        if (def.group && p.hasGroup(def.group) && !p.hasModule(def.id)) tag = ' · SWAP';
+        else if (def.stack && p.hasModule(def.id)) tag = ' · STACK →×' + (p.upgradeCount(def.id) + 1);
+        else if (def.stack) tag = ' · STACKS';
+      }
       ctx.fillStyle = active ? 'rgba(30,50,66,0.9)' : 'rgba(18,30,42,0.85)';
       this._rr(ctx, x, y, w, h, 10); ctx.fill();
       ctx.strokeStyle = active ? rc : RE.M.rgba(rc, 0.4);
@@ -261,7 +271,7 @@
       this._rr(ctx, x, y, w, 30, 10); ctx.fill();
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       ctx.font = '10px monospace'; ctx.fillStyle = rc;
-      ctx.fillText(def.slot.toUpperCase() + ' · ' + def.rarity.toUpperCase(), x + 12, y + 15);
+      ctx.fillText(def.slot.toUpperCase() + ' · ' + def.rarity.toUpperCase() + tag, x + 12, y + 15);
       // name
       ctx.font = 'bold 16px monospace'; ctx.fillStyle = '#eaffff';
       ctx.fillText(def.name, x + 12, y + 52);
@@ -304,7 +314,7 @@
         if (hover && game._mouseMoved) this.focus = idx;
         const focused = idx === this.focus, active = focused || hover;
         if (def) {
-          this._card(ctx, def, cx, cy, cw, ch, active);
+          this._card(ctx, def, cx, cy, cw, ch, active, game);
           const cost = game.stationCost(def);
           const afford = game.salvage >= cost;
           ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace';
