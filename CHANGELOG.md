@@ -40,6 +40,17 @@ A big feature drop that reshapes sight, terrain, and the build economy.
 - Deflector Shield is now held on **right-mouse** (or **[C]**), freeing **[F]** for
   the flashlight.
 
+### Fixed (adversarial review pass)
+- **Meta upgrades work again.** The Reconstructor's stat upgrades (hull, capacitor,
+  regen, servo, echo/dash efficiency, magnet) were being wiped when the loadout
+  recomputed; they now persist across run-start and every mid-run pickup.
+- Fortress nests are now **fully sealed** — you must *breach* the fortified wall to
+  reach the guaranteed cache (the whole point), and the contained swarm spills out
+  when you crack it; fortress wall HP tuned for a fair breach.
+- Guardrails on stacked commons so a pile of one part can't trivialize the game:
+  passive light (Lumen Plating) and weapon damage (Overcharge Coil) are capped;
+  Breaker Rounds is now uncommon and stacks **additively**.
+
 ## [1.3.2] — Polish Pass B
 Final refinement sweep.
 

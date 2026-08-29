@@ -91,15 +91,21 @@
 
       recompute() {
         this.stats = baseStats();
+        // Meta-upgrade bonuses apply first so meta + modules compose (and so the
+        // rebuild here doesn't discard them).
+        if (RE.applyMetaStats) RE.applyMetaStats(this.stats);
         for (const id of this.upgrades) {
           const def = RE.MODULES[id];
           if (def && def.apply) def.apply(this.stats, this);
         }
         const s = this.stats;
+        // Cap stacked multipliers so a pile of common stackables can't trivialize
+        // the game (damage outscaling the HP curve, passive light erasing the dark).
+        s.damageMul = Math.min(s.damageMul, CFG.player.damageMulCap);
         this.energyMax = CFG.player.energyMax + s.energyMaxAdd;
         this.hullMax = CFG.player.hullMax + s.hullMaxAdd;
-        this.lightInner = CFG.player.lightInner * s.lightInnerMul;
-        this.lightOuter = CFG.player.lightOuter * s.lightOuterMul;
+        this.lightInner = Math.min(CFG.player.lightInner * s.lightInnerMul, CFG.player.lightInnerCap);
+        this.lightOuter = Math.min(CFG.player.lightOuter * s.lightOuterMul, CFG.player.lightOuterCap);
         this.hull = Math.min(this.hull, this.hullMax);
         this.energy = Math.min(this.energy, this.energyMax);
         // Fill the Bulwark shield only when it's newly equipped; otherwise

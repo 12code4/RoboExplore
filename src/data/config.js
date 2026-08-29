@@ -22,7 +22,7 @@
       regenFrac: 0.02,     // fraction of max HP restored per second
       spreadFrac: 0.15,    // share of damage bled to surrounding walls
       spreadSteps: 2,      // how many neighbor hops the bleed travels
-      fortifyMul: 2.4,     // HP multiplier for fortress walls
+      fortifyMul: 1.8,     // HP multiplier for fortress walls (a real but fair breach)
     },
 
     // Player -------------------------------------------------------------
@@ -54,9 +54,14 @@
       flashRange: 220,     // cone reach (px)
       flashHalfArc: 0.55,  // half-angle of the cone (radians) → ~63° spread
       flashLevel: 0.92,    // brightness the cone washes tiles to
-      // passive light
+      // passive light (capped so stacked Lumen Plating can't erase the dark —
+      // both stay well under the flashlight's 220px reach)
       lightInner: 40,
       lightOuter: 82,
+      lightInnerCap: 62,
+      lightOuterCap: 124,
+      // stacked-damage guardrail (only Overcharge Coil feeds damageMul)
+      damageMulCap: 2.5,
       // hull
       hullMax: 100,
       hitIframes: 0.6,

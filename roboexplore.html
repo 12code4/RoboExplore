@@ -275,7 +275,7 @@ html, body {
       regenFrac: 0.02,     // fraction of max HP restored per second
       spreadFrac: 0.15,    // share of damage bled to surrounding walls
       spreadSteps: 2,      // how many neighbor hops the bleed travels
-      fortifyMul: 2.4,     // HP multiplier for fortress walls
+      fortifyMul: 1.8,     // HP multiplier for fortress walls (a real but fair breach)
     },
 
     // Player -------------------------------------------------------------
@@ -307,9 +307,14 @@ html, body {
       flashRange: 220,     // cone reach (px)
       flashHalfArc: 0.55,  // half-angle of the cone (radians) → ~63° spread
       flashLevel: 0.92,    // brightness the cone washes tiles to
-      // passive light
+      // passive light (capped so stacked Lumen Plating can't erase the dark —
+      // both stay well under the flashlight's 220px reach)
       lightInner: 40,
       lightOuter: 82,
+      lightInnerCap: 62,
+      lightOuterCap: 124,
+      // stacked-damage guardrail (only Overcharge Coil feeds damageMul)
+      damageMulCap: 2.5,
       // hull
       hullMax: 100,
       hitIframes: 0.6,
@@ -1694,9 +1699,9 @@ html, body {
       apply: (s) => { s.damageMul *= 1.18; },
     },
     'w-breaker': {
-      id: 'w-breaker', name: 'Breaker Rounds', slot: 'weapon', rarity: 'common', stack: true,
-      desc: 'Shots tear terrain apart: +150% wall damage. Carve the Hollow. Stacks.',
-      apply: (s) => { s.wallDamageMul *= 2.5; },
+      id: 'w-breaker', name: 'Breaker Rounds', slot: 'weapon', rarity: 'uncommon', stack: true,
+      desc: 'Shots tear terrain apart: +120% wall damage. Carve the Hollow. Stacks (additively).',
+      apply: (s) => { s.wallDamageMul += 1.2; },
     },
 
     // ============ MOBILITY ============
@@ -3418,15 +3423,21 @@ html, body {
 
       recompute() {
         this.stats = baseStats();
+        // Meta-upgrade bonuses apply first so meta + modules compose (and so the
+        // rebuild here doesn't discard them).
+        if (RE.applyMetaStats) RE.applyMetaStats(this.stats);
         for (const id of this.upgrades) {
           const def = RE.MODULES[id];
           if (def && def.apply) def.apply(this.stats, this);
         }
         const s = this.stats;
+        // Cap stacked multipliers so a pile of common stackables can't trivialize
+        // the game (damage outscaling the HP curve, passive light erasing the dark).
+        s.damageMul = Math.min(s.damageMul, CFG.player.damageMulCap);
         this.energyMax = CFG.player.energyMax + s.energyMaxAdd;
         this.hullMax = CFG.player.hullMax + s.hullMaxAdd;
-        this.lightInner = CFG.player.lightInner * s.lightInnerMul;
-        this.lightOuter = CFG.player.lightOuter * s.lightOuterMul;
+        this.lightInner = Math.min(CFG.player.lightInner * s.lightInnerMul, CFG.player.lightInnerCap);
+        this.lightOuter = Math.min(CFG.player.lightOuter * s.lightOuterMul, CFG.player.lightOuterCap);
         this.hull = Math.min(this.hull, this.hullMax);
         this.energy = Math.min(this.energy, this.energyMax);
         // Fill the Bulwark shield only when it's newly equipped; otherwise
@@ -5195,6 +5206,15 @@ html, body {
     { id: 'revive', name: 'Emergency Reboot', desc: 'Revive once per run at 30 hull.', cost: 30 },
   ];
 
+  // Apply unlocked meta-upgrade stat bonuses onto a fresh stat block. Called
+  // from player.recompute() — the single choke point that rebuilds this.stats —
+  // so meta persists across every recompute (run start AND every mid-run equip)
+  // and composes with modules instead of being wiped by the rebuild.
+  RE.applyMetaStats = function (stats) {
+    const u = RE.Save.data.unlocks;
+    for (const up of RE.META_UPGRADES) if (u[up.id] && up.apply) up.apply(stats);
+  };
+
   // The Deep Descent (New Game+) difficulty tiers, unlocked by clearing.
   RE.DEEP_TIERS = [
     { name: 'Standard', hp: 1, dmg: 1, count: 1, reward: 1 },
@@ -5266,9 +5286,8 @@ html, body {
 
     _applyMeta(p) {
       const u = RE.Save.data.unlocks;
-      for (const up of RE.META_UPGRADES) {
-        if (u[up.id] && up.apply) up.apply(p.stats);
-      }
+      // Stat bonuses are applied inside recompute() via RE.applyMetaStats so they
+      // survive the stat rebuild; here we only set the non-stat meta effects.
       this.salvageMul = u.salvage ? 1.15 : 1;
       p.recompute();
       p.hull = p.hullMax; p.energy = p.energyMax;
@@ -5423,9 +5442,11 @@ html, body {
       }
     },
 
-    // A fortified nest: a 5×5 ring of tough destructible walls (with a gap on
-    // each side so minions leak and you can push in), a Hive Node spawner at the
-    // core, and a GUARANTEED module cache inside as the prize for breaching it.
+    // A fortified nest: a fully-sealed 5×5 ring of tough destructible walls
+    // around a hollow core holding a Hive Node spawner and a GUARANTEED module
+    // cache. The fortification is the point — you must BREACH a wall (your shots
+    // carve terrain) to reach the prize, and the contained swarm pours out when
+    // you do. Destructible walls mean the nest can never truly trap the player.
     _buildFortress(gen, rng) {
       const map = this.map, W = map.w, H = map.h;
       const idx = gen.pickFeatureCell(10, 9);
@@ -5438,13 +5459,8 @@ html, body {
         for (let dx = -2; dx <= 2; dx++) {
           const tx = tx0 + dx, ty = ty0 + dy;
           const ring = Math.max(Math.abs(dx), Math.abs(dy)) === 2;
-          if (ring) {
-            // leave a one-tile gate at the middle of each edge
-            if ((dx === 0 && Math.abs(dy) === 2) || (dy === 0 && Math.abs(dx) === 2)) { RE.Walls.clearTile(tx, ty); continue; }
-            RE.Walls.fortifyTile(tx, ty);
-          } else {
-            RE.Walls.clearTile(tx, ty);   // hollow interior
-          }
+          if (ring) RE.Walls.fortifyTile(tx, ty);   // sealed fortified shell
+          else RE.Walls.clearTile(tx, ty);           // hollow interior
         }
       }
       const ctr = map.centerOfTile(tx0, ty0);
@@ -5786,7 +5802,9 @@ html, body {
       RE.Walls.update(dt);
       p.update(dt, this);
 
-      for (const e of this.enemies) if (e.alive) e.update(dt * eScale, this);
+      // Snapshot the count so a spawner pushing children this frame doesn't give
+      // those children an extra same-frame update (they activate next frame).
+      for (let i = 0, n = this.enemies.length; i < n; i++) { const e = this.enemies[i]; if (e && e.alive) e.update(dt * eScale, this); }
       for (const pr of this.projectiles) if (pr.alive) pr.update(pr.friendly ? dt : dt * eScale, this);
       this._projectileCollisions();
       for (const pk of this.pickups) if (pk.alive) pk.update(dt, this);

@@ -53,9 +53,9 @@
       apply: (s) => { s.damageMul *= 1.18; },
     },
     'w-breaker': {
-      id: 'w-breaker', name: 'Breaker Rounds', slot: 'weapon', rarity: 'common', stack: true,
-      desc: 'Shots tear terrain apart: +150% wall damage. Carve the Hollow. Stacks.',
-      apply: (s) => { s.wallDamageMul *= 2.5; },
+      id: 'w-breaker', name: 'Breaker Rounds', slot: 'weapon', rarity: 'uncommon', stack: true,
+      desc: 'Shots tear terrain apart: +120% wall damage. Carve the Hollow. Stacks (additively).',
+      apply: (s) => { s.wallDamageMul += 1.2; },
     },
 
     // ============ MOBILITY ============

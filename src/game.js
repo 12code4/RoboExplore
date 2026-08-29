@@ -22,6 +22,15 @@
     { id: 'revive', name: 'Emergency Reboot', desc: 'Revive once per run at 30 hull.', cost: 30 },
   ];
 
+  // Apply unlocked meta-upgrade stat bonuses onto a fresh stat block. Called
+  // from player.recompute() — the single choke point that rebuilds this.stats —
+  // so meta persists across every recompute (run start AND every mid-run equip)
+  // and composes with modules instead of being wiped by the rebuild.
+  RE.applyMetaStats = function (stats) {
+    const u = RE.Save.data.unlocks;
+    for (const up of RE.META_UPGRADES) if (u[up.id] && up.apply) up.apply(stats);
+  };
+
   // The Deep Descent (New Game+) difficulty tiers, unlocked by clearing.
   RE.DEEP_TIERS = [
     { name: 'Standard', hp: 1, dmg: 1, count: 1, reward: 1 },
@@ -93,9 +102,8 @@
 
     _applyMeta(p) {
       const u = RE.Save.data.unlocks;
-      for (const up of RE.META_UPGRADES) {
-        if (u[up.id] && up.apply) up.apply(p.stats);
-      }
+      // Stat bonuses are applied inside recompute() via RE.applyMetaStats so they
+      // survive the stat rebuild; here we only set the non-stat meta effects.
       this.salvageMul = u.salvage ? 1.15 : 1;
       p.recompute();
       p.hull = p.hullMax; p.energy = p.energyMax;
@@ -250,9 +258,11 @@
       }
     },
 
-    // A fortified nest: a 5×5 ring of tough destructible walls (with a gap on
-    // each side so minions leak and you can push in), a Hive Node spawner at the
-    // core, and a GUARANTEED module cache inside as the prize for breaching it.
+    // A fortified nest: a fully-sealed 5×5 ring of tough destructible walls
+    // around a hollow core holding a Hive Node spawner and a GUARANTEED module
+    // cache. The fortification is the point — you must BREACH a wall (your shots
+    // carve terrain) to reach the prize, and the contained swarm pours out when
+    // you do. Destructible walls mean the nest can never truly trap the player.
     _buildFortress(gen, rng) {
       const map = this.map, W = map.w, H = map.h;
       const idx = gen.pickFeatureCell(10, 9);
@@ -265,13 +275,8 @@
         for (let dx = -2; dx <= 2; dx++) {
           const tx = tx0 + dx, ty = ty0 + dy;
           const ring = Math.max(Math.abs(dx), Math.abs(dy)) === 2;
-          if (ring) {
-            // leave a one-tile gate at the middle of each edge
-            if ((dx === 0 && Math.abs(dy) === 2) || (dy === 0 && Math.abs(dx) === 2)) { RE.Walls.clearTile(tx, ty); continue; }
-            RE.Walls.fortifyTile(tx, ty);
-          } else {
-            RE.Walls.clearTile(tx, ty);   // hollow interior
-          }
+          if (ring) RE.Walls.fortifyTile(tx, ty);   // sealed fortified shell
+          else RE.Walls.clearTile(tx, ty);           // hollow interior
         }
       }
       const ctr = map.centerOfTile(tx0, ty0);
@@ -613,7 +618,9 @@
       RE.Walls.update(dt);
       p.update(dt, this);
 
-      for (const e of this.enemies) if (e.alive) e.update(dt * eScale, this);
+      // Snapshot the count so a spawner pushing children this frame doesn't give
+      // those children an extra same-frame update (they activate next frame).
+      for (let i = 0, n = this.enemies.length; i < n; i++) { const e = this.enemies[i]; if (e && e.alive) e.update(dt * eScale, this); }
       for (const pr of this.projectiles) if (pr.alive) pr.update(pr.friendly ? dt : dt * eScale, this);
       this._projectileCollisions();
       for (const pk of this.pickups) if (pk.alive) pk.update(dt, this);
